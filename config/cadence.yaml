@@ -1,0 +1,55 @@
+# Publishing cadence.
+#
+# The cadence describes the *shape* of a good week. It is a target, never an
+# obligation: a slot with no qualified content is skipped and recorded as
+# skipped. Quality outranks schedule completion, and the weekly report shows
+# skipped slots so a quiet week is visible rather than papered over with filler.
+
+version: "2026.08.14"
+
+timezone: "America/New_York"
+
+weekly_plan:
+  monday:
+    - pillar: cybersecurity_education
+      platforms: [linkedin, facebook]
+      post_at: "08:30"
+  tuesday:
+    - pillar: founder_expertise
+      platforms: [linkedin]
+      post_at: "08:30"
+  wednesday:
+    - pillar: rdx_capabilities
+      platforms: [linkedin, facebook, instagram]
+      post_at: "09:00"
+  thursday:
+    - pillar: academy_workforce
+      platforms: [linkedin, instagram]
+      post_at: "08:30"
+  friday:
+    - pillar: smallbiz_federal_education
+      platforms: [linkedin]
+      post_at: "08:30"
+  saturday:
+    - pillar: founder_expertise
+      platforms: [instagram]
+      post_at: "10:00"
+      optional: true
+  sunday: []
+
+# Ceilings, so a backlog cannot flood a week.
+limits:
+  max_posts_per_day: 3
+  max_posts_per_week: 10
+  min_hours_between_posts_same_platform: 18
+
+# A slot is filled only from content that already satisfies every one of these.
+slot_eligibility:
+  require_approved: true
+  require_classification: true
+  require_platform_variant: true
+  # Below this, a slot is skipped rather than filled.
+  min_body_chars:
+    linkedin: 400
+    facebook: 200
+    instagram: 80

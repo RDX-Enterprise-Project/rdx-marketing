@@ -1,0 +1,140 @@
+# Disclosure and publication policy.
+#
+# This file is the authority on what may leave the building. Nothing in the
+# drafting layer, and no model, can override it.
+
+version: "2026.08.14"
+
+# Ordered from most to least disclosable. A content item with no classification
+# is not on this list at all, and fails closed at the publish boundary.
+disclosure_classes:
+  - PUBLIC
+  - PUBLIC_AFTER_APPROVAL
+  - MARKETING_SAFE_SUMMARY
+  - INTERNAL_ONLY
+  - CONFIDENTIAL
+  - NEVER_PUBLISH
+
+# Classes that may reach a social platform at all.
+publishable_classes:
+  - PUBLIC
+  - PUBLIC_AFTER_APPROVAL
+  - MARKETING_SAFE_SUMMARY
+
+# Classes that may reach a platform without a human in the loop, and only when
+# the operating mode allows it and the pillar is auto-eligible.
+auto_publishable_classes:
+  - PUBLIC
+
+# Anything not explicitly classified defaults here.
+default_approval_requirement: HUMAN_APPROVAL_REQUIRED
+
+# MODE_1_APPROVAL_REQUIRED | MODE_2_TRUSTED_AUTOPUBLISH | MODE_3_MIXED
+operating_mode: MODE_3_MIXED
+
+# Pillars whose routine content may auto-publish under MODE_3_MIXED. Everything
+# touching customers, partners, contracts, or major company claims is absent
+# from this list on purpose.
+auto_eligible_pillars:
+  - cybersecurity_education
+  - soar_automation
+
+# Categories that must never flow into public marketing automatically. A match
+# blocks auto-publication and routes the item to a human; a match on a
+# never_publish category blocks publication outright.
+restricted_categories:
+  block_publication:
+    - key: CONTRACTING_OFFICER_CORRESPONDENCE
+      match:
+        - "contracting officer said"
+        - "per the CO"
+        - "CO confirmed"
+        - "contracting officer confirmed"
+    - key: ACTIVE_CAPTURE_STRATEGY
+      match:
+        - "we are pursuing"
+        - "our capture strategy"
+        - "bid strategy"
+        - "we plan to bid"
+        - "pursuing solicitation"
+    - key: NONPUBLIC_SOLICITATION_ANALYSIS
+      match:
+        - "solicitation number"
+        - "RFP number"
+        - "our price to win"
+        - "incumbent is"
+    - key: PRIVATE_PARTNER_NEGOTIATION
+      match:
+        - "under negotiation"
+        - "redlined"
+        - "term sheet"
+        - "not yet signed"
+        - "pending counsel review"
+    - key: PROTECTED_PAST_PERFORMANCE
+      match:
+        - "CPARS"
+        - "past performance questionnaire"
+        - "our rating on"
+    - key: CREDENTIALS_OR_SECRETS
+      match:
+        - "api key"
+        - "password"
+        - "bearer token"
+    - key: PERSONNEL_PRIVATE_INFORMATION
+      match:
+        - "salary"
+        - "clearance level"
+        - "medical leave"
+        - "performance improvement plan"
+
+  require_human_approval:
+    - key: NAMED_CUSTOMER
+      match:
+        - "our customer"
+        - "our client"
+        - "client at"
+    - key: NAMED_PARTNER
+      match:
+        - "partnership with"
+        - "teaming with"
+        - "our partner"
+    - key: COMPANY_CLAIM
+      match:
+        - "first to"
+        - "only company"
+        - "certified"
+        - "accredited"
+        - "awarded"
+    - key: FOUNDER_BIOGRAPHY
+      match:
+        - "my clearance"
+        - "when I worked at"
+        - "my time at"
+
+# Phrases that must never appear in outbound copy regardless of classification.
+# RDX positioning: never "AI security"; the practice is Agentic Ops Security.
+prohibited_phrases:
+  - "AI security"
+  - "pending SDVOSB"
+  - "SDVOSB pending"
+  - "certification pending"
+
+# Every public business claim must resolve to an evidence record.
+evidence:
+  required_for_claim_categories:
+    - COMPANY_CLAIM
+    - NAMED_CUSTOMER
+    - NAMED_PARTNER
+    - PROTECTED_PAST_PERFORMANCE
+  # Kinds accepted as evidence. A generated artefact is not on this list and
+  # cannot be added to it at runtime.
+  accepted_kinds:
+    - EXTERNAL_DOCUMENT
+    - PUBLIC_URL
+    - INTERNAL_RECORD
+    - HUMAN_ATTESTATION
+    - CERTIFICATE
+
+duplicate_prevention:
+  # Reject an identical platform variant scheduled within this window.
+  lookback_days: 90

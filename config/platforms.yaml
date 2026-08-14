@@ -1,0 +1,77 @@
+# Platform adapters and the publishing gateway.
+#
+# Buffer is the initial gateway for all three networks. It is encapsulated
+# behind SocialPublisher (app/publisher/base.py) so it can be replaced without
+# rewriting the engine.
+
+version: "2026.08.14"
+
+publisher:
+  provider: buffer
+  enabled: false
+  api_base: "https://graph.buffer.com/"
+  token_env: "BUFFER_ACCESS_TOKEN"
+  request_timeout_seconds: 45
+  # Posts are created in Buffer as drafts unless the policy engine has cleared
+  # the item for automatic publication. The approval control therefore exists at
+  # the publishing layer as well as in this application.
+  default_create_as_draft: true
+  channels:
+    linkedin_env: "BUFFER_CHANNEL_LINKEDIN"
+    facebook_env: "BUFFER_CHANNEL_FACEBOOK"
+    instagram_env: "BUFFER_CHANNEL_INSTAGRAM"
+  retry:
+    max_attempts: 4
+    backoff_seconds: [30, 300, 1800]
+
+platforms:
+  linkedin:
+    label: "LinkedIn"
+    audience: "federal buyers, primes, partners, security practitioners"
+    body:
+      target_words: [150, 300]
+      hard_max_chars: 2800
+    hashtags:
+      max: 3
+    first_comment_supported: true
+    post_types: [post, carousel]
+    tone: "technical and business-credible; one concrete takeaway per post"
+
+  facebook:
+    label: "Facebook"
+    audience: "community, local network, prospective students"
+    body:
+      target_words: [60, 150]
+      hard_max_chars: 2000
+    hashtags:
+      max: 3
+    first_comment_supported: false
+    post_types: [post]
+    tone: "conversational company voice; milestones and education"
+
+  instagram:
+    label: "Instagram"
+    audience: "students, early-career, general awareness"
+    body:
+      target_words: [20, 60]
+      hard_max_chars: 2200
+    hashtags:
+      max: 12
+    first_comment_supported: true
+    # Visual-first: an Instagram variant without media is not publishable.
+    requires_media: true
+    post_types: [post, carousel, reel, story]
+    tone: "short, visual-first; caption supports the image rather than repeating it"
+
+# House style, applied to every variant regardless of platform.
+style:
+  # RDX public copy must not read as machine-written.
+  forbid_em_dash: true
+  forbid_phrases:
+    - "in today's fast-paced world"
+    - "leverage synergies"
+    - "game-changer"
+    - "revolutionise"
+    - "revolutionize"
+  # Copy must differ across platforms; identical text everywhere is a defect.
+  require_distinct_bodies: true

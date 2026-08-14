@@ -1,0 +1,58 @@
+# Content pillars. Configurable: add, remove, or reweight without touching code.
+
+version: "2026.08.14"
+
+pillars:
+  - key: cybersecurity_education
+    label: "Cybersecurity education"
+    description: "SOC modernisation, incident response, APIs, practical security operations."
+    default_disclosure: PUBLIC
+    auto_eligible: true
+    requires_evidence: false
+
+  - key: soar_automation
+    label: "SOAR and security automation"
+    description: "Orchestration, playbooks, automation design, human accountability."
+    default_disclosure: PUBLIC
+    auto_eligible: true
+    requires_evidence: false
+
+  - key: rdx_capabilities
+    label: "RDX capabilities"
+    description: "What RDX does and which problems it solves."
+    default_disclosure: PUBLIC_AFTER_APPROVAL
+    auto_eligible: false
+    requires_evidence: true
+
+  - key: academy_workforce
+    label: "RDX Academy / workforce development"
+    description: "Training, SOAR engineering curriculum, workforce pathways."
+    default_disclosure: PUBLIC_AFTER_APPROVAL
+    auto_eligible: false
+    requires_evidence: true
+
+  - key: founder_expertise
+    label: "Founder expertise and leadership"
+    description: >
+      Lessons from a technical career and from building RDX. Kept separate from
+      company past performance: a personal recollection is not corporate
+      experience, and must not be worded as one.
+    default_disclosure: PUBLIC_AFTER_APPROVAL
+    auto_eligible: false
+    requires_evidence: false
+
+  - key: smallbiz_federal_education
+    label: "Small-business and federal-market education"
+    description: >
+      What it takes to build a government-ready cybersecurity company. Never
+      discloses active pursuit strategy.
+    default_disclosure: PUBLIC_AFTER_APPROVAL
+    auto_eligible: false
+    requires_evidence: false
+
+  - key: approved_milestones
+    label: "Publicly approved RDX milestones"
+    description: "Certifications, public partnerships, releases, events."
+    default_disclosure: PUBLIC_AFTER_APPROVAL
+    auto_eligible: false
+    requires_evidence: true

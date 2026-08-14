@@ -1,0 +1,49 @@
+# AI drafting configuration.
+#
+# AI is a writing assistant here, never an authority. It does not decide what
+# topic runs, which campaign, which platform, whether disclosure is allowed,
+# whether approval is required, or when anything publishes. Those are
+# deterministic. It also cannot grant publication permission: see
+# app/ai/drafting.py and tests/test_ai_authority.py.
+
+version: "2026.08.14"
+
+enabled: false
+
+# Per task, so cheap work uses a cheap model and only genuinely high-value copy
+# reaches an expensive one. "none" means the deterministic template is used.
+tasks:
+  draft:
+    provider: none
+    model: ""
+    max_cost_usd: 0.05
+  hooks:
+    provider: none
+    model: ""
+    max_cost_usd: 0.01
+  adapt:
+    provider: none
+    model: ""
+    max_cost_usd: 0.02
+  shorten:
+    provider: none
+    model: ""
+    max_cost_usd: 0.01
+  carousel:
+    provider: none
+    model: ""
+    max_cost_usd: 0.03
+
+budget:
+  max_calls_per_run: 0
+  max_cost_usd_per_run: 0.0
+  max_cost_usd_per_month: 0.0
+
+# Evidence and classification are never sent to a drafting model as something it
+# may change. The prompt receives the approved core message and the platform
+# constraints, and returns copy.
+prompt_policy:
+  send_disclosure_class: false
+  send_raw_evidence: false
+  send_core_message: true
+  send_platform_constraints: true
