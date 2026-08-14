@@ -1,0 +1,43 @@
+{
+  "_fixture": {
+    "name": "buffer_create_post_draft",
+    "provenance": "synthetic",
+    "captured_at": null,
+    "api": "Buffer createPost (saveToDraft: true)",
+    "endpoint": "https://api.buffer.com",
+    "documented_at": "2026-08-14",
+    "sanitised": [],
+    "note": "Hand-built to the documented shape. The two unknowns this fixture is meant to settle are the PostInputMetaData key for a first comment and whether a draft comes back with status 'draft'. Capture with `python scripts/capture_fixtures.py --execute`; the live-only contract tests stay skipped until then."
+  },
+  "request": {
+    "query_name": "CreatePost",
+    "variables": {
+      "input": {
+        "channelId": "REDACTED_CHANNEL_ID",
+        "text": "RDX contract fixture capture. Draft only, safe to delete.",
+        "assets": [],
+        "mode": "addToQueue",
+        "schedulingType": "automatic",
+        "saveToDraft": true,
+        "needsApproval": true,
+        "metadata": {
+          "linkedin": {
+            "firstComment": "Contract fixture capture."
+          }
+        }
+      }
+    }
+  },
+  "payload": {
+    "data": {
+      "createPost": {
+        "post": {
+          "id": "REDACTED_POST_ID",
+          "text": "RDX contract fixture capture. Draft only, safe to delete.",
+          "dueAt": null,
+          "status": "draft"
+        }
+      }
+    }
+  }
+}

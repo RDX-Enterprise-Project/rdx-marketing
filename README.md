@@ -175,3 +175,29 @@ isolated to `app/publisher/buffer.py`.
 
 Publishing stays disabled and `default_create_as_draft: true` until a real token
 has confirmed those two, so nothing can post while it is being checked.
+
+## Contract tests
+
+`tests/test_contract_buffer.py` pins the adapter to stored response fixtures in
+`tests/fixtures/`. Offline, so the suite never needs the network. When Buffer
+changes its schema, re-capturing makes one named test fail instead of the engine
+silently reporting every post as zero engagement.
+
+The adapter declares what it sends and reads (`CREATE_POST_REQUIRED_INPUT`,
+`CREATE_POST_RESPONSE_KEYS`, `METRIC_ENTRY_KEYS`), and the create fixture stores
+**both halves** — the request and the response — because pinning only the
+response would let the request's non-null fields drift back out.
+
+Three tests are skipped until a live capture exists. They are the ones that
+settle the two unknowns above, and they fail with Buffer's own error message
+when the guess is wrong. See `tests/fixtures/README.md`.
+
+**The create capture writes to your Buffer account** — there is no way to get a
+real `createPost` response without calling it. It is sent `saveToDraft: true`,
+so nothing publishes, but a draft appears and the script prints its id to
+delete. It refuses to send anything without `--execute`:
+
+```bash
+python scripts/capture_fixtures.py            # dry run
+python scripts/capture_fixtures.py --execute  # creates ONE draft
+```

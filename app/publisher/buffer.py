@@ -109,6 +109,27 @@ CLIENT_ERROR_CODES = frozenset(
     {"BAD_USER_INPUT", "UNAUTHENTICATED", "FORBIDDEN", "VALIDATION_ERROR", "GRAPHQL_VALIDATION_FAILED"}
 )
 
+# --------------------------------------------------------------------------- #
+# Contract
+#
+# What this adapter sends and reads. `tests/test_contract_buffer.py` pins a
+# captured response to these, so a Buffer schema change fails one named test
+# rather than silently producing wrong numbers. Add to these lists when the
+# adapter starts depending on something new.
+# --------------------------------------------------------------------------- #
+
+#: Non-null on CreatePostInput. Omitting any one of these fails the whole call.
+CREATE_POST_REQUIRED_INPUT = ("channelId", "assets", "mode", "schedulingType", "needsApproval")
+
+#: Sent when relevant.
+CREATE_POST_OPTIONAL_INPUT = ("text", "dueAt", "saveToDraft", "metadata")
+
+#: Read off the success arm of the response union.
+CREATE_POST_RESPONSE_KEYS = ("id", "status")
+
+#: Read off each entry of Post.metrics.
+METRIC_ENTRY_KEYS = ("type", "value")
+
 
 class GraphQlTransport(Protocol):
     def post_json(
