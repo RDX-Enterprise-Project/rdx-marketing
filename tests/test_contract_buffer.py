@@ -173,38 +173,83 @@ def test_every_metric_type_in_the_fixture_is_one_the_adapter_maps():
 
 
 @pytest.mark.skipif(not fixtures.is_live(CREATE), reason=fixtures.requires_live(CREATE))
-def test_the_live_draft_response_confirms_the_first_comment_metadata_key():
-    """One of the two unknowns. Only a real call settles it."""
-    request_block = _request_block()
-    metadata = request_block["variables"]["input"].get("metadata")
-    assert metadata, "the capture did not send a first comment; re-capture with one"
+def test_the_live_call_was_accepted_at_all():
+    """Contract, not content: Buffer took the request we actually send.
 
+    Asserts nothing about the draft's text or id, because the next capture will
+    be a different draft. What must hold is that the mutation, the input type,
+    and every non-null field were acceptable together.
+    """
     payload = fixtures.payload(CREATE)
-    createPost = payload["data"]["createPost"]
-    assert createPost.get("post"), (
-        "Buffer rejected the metadata shape: %s. Fix FIRST_COMMENT_METADATA_KEY in "
-        "app/publisher/buffer.py to whatever the error names."
-        % createPost.get("message")
+    assert not payload.get("errors"), (
+        "Buffer rejected the request at the GraphQL layer: %s. The mutation name, "
+        "input type, or a field type in CREATE_POST is wrong." % payload.get("errors")
+    )
+    create = (payload.get("data") or {}).get("createPost") or {}
+    assert create.get("post"), (
+        "createPost returned the error arm: %s. Whatever it names is the field to "
+        "correct in app/publisher/buffer.py." % create.get("message")
     )
 
 
 @pytest.mark.skipif(not fixtures.is_live(CREATE), reason=fixtures.requires_live(CREATE))
-def test_the_live_draft_comes_back_staged_not_sent():
-    """A draft capture that came back `sent` would mean the engine published."""
-    post = fixtures.payload(CREATE)["data"]["createPost"]["post"]
-    assert str(post.get("status", "")).lower() != "sent", (
-        "the fixture capture PUBLISHED a post instead of drafting it; "
-        "saveToDraft is not doing what the adapter assumes"
+def test_the_live_response_confirms_the_first_comment_metadata_key():
+    """Unknown #1. A wrong key comes back as a MutationError naming it."""
+    sent = _request_block()["variables"]["input"]
+    assert sent.get("metadata"), "the capture did not send a first comment; re-capture with one"
+
+    create = fixtures.payload(CREATE)["data"]["createPost"]
+    assert create.get("post"), (
+        "Buffer rejected the metadata shape: %s. Correct FIRST_COMMENT_METADATA_KEY."
+        % create.get("message")
     )
+
+
+@pytest.mark.skipif(not fixtures.is_live(CREATE), reason=fixtures.requires_live(CREATE))
+def test_the_live_draft_came_back_staged_and_not_sent():
+    """The safety assertion: saveToDraft must actually mean staged.
+
+    Uses the adapter's own status logic rather than string-matching the fixture,
+    so this tests what the engine would conclude, not what the JSON happens to
+    say.
+    """
+    from app.publisher.base import STATUS_PUBLISHED
+
+    transport = FakeTransport(fixtures.payload(CREATE))
+    result = _publisher(transport).publish(_request(create_as_draft=True))
+
+    assert result.status != STATUS_PUBLISHED, (
+        "the contract capture PUBLISHED a post instead of drafting it. "
+        "saveToDraft is not doing what the adapter assumes; do not enable "
+        "publishing until this is understood."
+    )
+    post = fixtures.payload(CREATE)["data"]["createPost"]["post"]
+    assert not post.get("sentAt"), "a draft came back with sentAt populated"
 
 
 @pytest.mark.skipif(not fixtures.is_live(METRICS), reason=fixtures.requires_live(METRICS))
-def test_the_live_metrics_query_scalar_name_is_accepted():
-    """The other unknown: `PostId` versus `ID` in the query signature."""
-    assert "PostId" in POST_METRICS or "ID" in POST_METRICS
+def test_the_live_metrics_query_was_accepted():
+    """Unknown #2: the scalar name in the query signature."""
     payload = fixtures.payload(METRICS)
     assert not payload.get("errors"), (
-        "the metrics query was rejected: %s. Correct the scalar name in "
-        "POST_METRICS." % payload.get("errors")
+        "the metrics query was rejected: %s. Correct the scalar name in POST_METRICS."
+        % payload.get("errors")
     )
     assert (payload.get("data") or {}).get("post"), "metrics query returned no post"
+
+
+@pytest.mark.skipif(not fixtures.is_live(METRICS), reason=fixtures.requires_live(METRICS))
+def test_every_live_metric_type_is_one_the_adapter_maps():
+    """An unmapped type is dropped silently, so a live capture must name them all."""
+    metrics = (fixtures.payload(METRICS)["data"]["post"] or {}).get("metrics") or []
+    unmapped = sorted(
+        {
+            str(m["type"])
+            for m in metrics
+            if isinstance(m, dict) and str(m.get("type", "")).lower() not in METRIC_TYPE_MAP
+        }
+    )
+    assert not unmapped, (
+        "Buffer reports metric type(s) the adapter drops on the floor: %s. Add them "
+        "to METRIC_TYPE_MAP or they never reach the weekly report." % unmapped
+    )

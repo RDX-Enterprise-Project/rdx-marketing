@@ -48,11 +48,13 @@ from app.publisher.buffer import (  # noqa: E402
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
+# Unmistakably a test, in case anything ever looks at the account.
 DRAFT_TEXT = (
-    "RDX contract fixture capture. This is a draft created by "
-    "scripts/capture_fixtures.py to pin the Buffer API shape. Safe to delete."
+    "RDX Adapter Contract Test - DO NOT PUBLISH. "
+    "Created by scripts/capture_fixtures.py to pin the Buffer API schema. "
+    "Safe to delete."
 )
-FIRST_COMMENT_TEXT = "Contract fixture capture."
+FIRST_COMMENT_TEXT = "RDX Adapter Contract Test - DO NOT PUBLISH."
 
 REDACTED_CHANNEL = "REDACTED_CHANNEL_ID"
 REDACTED_POST = "REDACTED_POST_ID"
@@ -130,6 +132,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--execute",
         action="store_true",
         help="actually call Buffer. Without this the script only prints the request.",
+    )
+    parser.add_argument(
+        "--keep-draft",
+        action="store_true",
+        help="do not delete the test draft afterwards (default is to delete it)",
     )
     args = parser.parse_args(argv)
 
@@ -223,6 +230,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     }
     document["_fixture"]["sanitised"] = sorted(set(notes))
     print("wrote %s" % write_fixture("buffer_create_post_draft", document).name)
+
+    # Clean up: a contract capture should leave no residue in the account.
+    if post_id and not args.keep_draft:
+        from app.publisher.buffer import BufferConfig, BufferPublisher
+
+        publisher = BufferPublisher(
+            http, BufferConfig(token=token, channels={args.platform: channel})
+        )
+        if publisher.delete_post(post_id):
+            print("deleted the test draft (%s)" % post_id)
+        else:
+            print()
+            print("!! COULD NOT DELETE the test draft.")
+            print("!! Post id %s is still in your Buffer account." % post_id)
+            print("!! It is marked 'RDX Adapter Contract Test - DO NOT PUBLISH'.")
+            print("!! Delete it manually.")
+    elif post_id:
+        print("--keep-draft: draft %s left in the account, marked as a test." % post_id)
 
     if args.metrics_post_id:
         try:

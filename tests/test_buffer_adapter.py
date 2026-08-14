@@ -263,3 +263,61 @@ def test_no_metrics_yet_returns_none_rather_than_zeroes():
         _publisher(FakeTransport(error=TimeoutError("slow"))).fetch_metrics("p", "linkedin")
         is None
     )
+
+
+# --------------------------------------------------------------------------- #
+# deletion and post URL
+# --------------------------------------------------------------------------- #
+
+
+def test_delete_post_uses_the_documented_mutation():
+    transport = FakeTransport({"data": {"deletePost": {"id": "post_1"}}})
+    assert _publisher(transport).delete_post("post_1") is True
+
+    query = transport.calls[0]["payload"]["query"]
+    assert "mutation DeletePost($input: DeletePostInput!)" in query
+    assert "... on DeletePostSuccess" in query
+    assert "... on VoidMutationError" in query
+    assert transport.calls[0]["payload"]["variables"] == {"input": {"id": "post_1"}}
+
+
+def test_a_failed_delete_is_reported_not_assumed():
+    """A leftover test draft must be visible, never silently assumed gone."""
+    assert _publisher(FakeTransport({"data": {"deletePost": {"message": "not found"}}})).delete_post("p") is False
+    assert _publisher(FakeTransport({"errors": [{"message": "nope"}]})).delete_post("p") is False
+    assert _publisher(FakeTransport(error=ConnectionError("down"))).delete_post("p") is False
+
+
+def test_the_post_url_comes_from_externalLink():
+    """`externalLink`, not `permalink`; the publications column was always NULL."""
+    transport = FakeTransport(
+        {
+            "data": {
+                "createPost": {
+                    "post": {
+                        "id": "post_1",
+                        "status": "buffer",
+                        "externalLink": "https://linkedin.com/feed/update/123",
+                    }
+                }
+            }
+        }
+    )
+    result = _publisher(transport).publish(_request())
+    assert result.permalink == "https://linkedin.com/feed/update/123"
+    assert "externalLink" in transport.calls[0]["payload"]["query"]
+
+
+def test_a_post_with_sentAt_is_published_whatever_its_status_string():
+    transport = FakeTransport(
+        {"data": {"createPost": {"post": {"id": "p", "status": "weird", "sentAt": "2026-08-17T09:00:00Z"}}}}
+    )
+    assert _publisher(transport).publish(_request()).status == STATUS_PUBLISHED
+
+
+def test_an_unknown_status_without_sentAt_reads_as_staged():
+    """Staged is the safe reading; the raw response keeps the real value."""
+    transport = FakeTransport({"data": {"createPost": {"post": {"id": "p", "status": "mystery"}}}})
+    result = _publisher(transport).publish(_request())
+    assert result.status == STATUS_SCHEDULED
+    assert result.raw["data"]["createPost"]["post"]["status"] == "mystery"

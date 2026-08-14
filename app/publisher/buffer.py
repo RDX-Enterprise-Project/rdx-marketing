@@ -61,9 +61,26 @@ mutation CreatePost($input: CreatePostInput!) {
         text
         dueAt
         status
+        sentAt
+        externalLink
       }
     }
     ... on MutationError {
+      message
+    }
+  }
+}
+"""
+
+#: Cleanup. Used by scripts/capture_fixtures.py to remove the test draft it
+#: creates, so a contract capture leaves no residue in the account.
+DELETE_POST = """
+mutation DeletePost($input: DeletePostInput!) {
+  deletePost(input: $input) {
+    ... on DeletePostSuccess {
+      id
+    }
+    ... on VoidMutationError {
       message
     }
   }
@@ -231,8 +248,32 @@ class BufferPublisher:
             status=_status_from(post, create_as_draft),
             provider=PROVIDER,
             provider_post_id=str(post["id"]),
+            # `externalLink`, not `permalink`. The publications table has always
+            # had this column and it was never being filled.
+            permalink=post.get("externalLink"),
             raw=response,
         )
+
+    def delete_post(self, provider_post_id: str) -> bool:
+        """Delete a post. Used to clean up a contract-capture test draft.
+
+        Returns True only on a confirmed delete. A failure is reported, never
+        assumed away, so a leftover draft is visible rather than silent.
+        """
+        try:
+            response = self._transport.post_json(
+                self._config.api_base,
+                {"query": DELETE_POST, "variables": {"input": {"id": provider_post_id}}},
+                headers=self._headers(),
+                timeout=self._config.timeout_seconds,
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+        if response.get("errors"):
+            return False
+        payload = (response.get("data") or {}).get("deletePost") or {}
+        return bool(payload.get("id")) and not payload.get("message")
 
     def _build_input(
         self, request: PublishRequest, channel: str, create_as_draft: bool
@@ -337,11 +378,27 @@ class BufferPublisher:
         }
 
 
+#: PostStatus values that mean the post is staged, not live.
+STAGED_STATUSES = frozenset({"draft", "buffer"})
+
+
 def _status_from(post: Dict[str, Any], create_as_draft: bool) -> str:
+    """Staged or live.
+
+    `sentAt` is checked as well as `status`: the documentation names `draft` and
+    `buffer` explicitly but does not pin the sent value, and treating an unknown
+    status as staged when the post has actually gone out would under-report a
+    publication. A populated `sentAt` is unambiguous.
+    """
+    if post.get("sentAt"):
+        return STATUS_PUBLISHED
     status = str(post.get("status", "")).lower()
+    if status in STAGED_STATUSES:
+        return STATUS_SCHEDULED
     if status == "sent":
         return STATUS_PUBLISHED
-    # "draft" and "buffer" (queued) are both staged, not live.
+    # Unknown status with no sentAt: staged is the safe reading, and the raw
+    # response is stored so the real value is recoverable.
     return STATUS_SCHEDULED
 
 
