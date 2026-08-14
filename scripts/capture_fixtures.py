@@ -3,8 +3,18 @@
 
 **This script writes to your Buffer account.** Capturing a real ``createPost``
 response requires actually calling ``createPost``. It is sent with
-``saveToDraft: true`` so the post is staged, never published, but a draft does
-appear in Buffer and you should delete it afterwards. The script prints the id.
+``saveToDraft: true``, which should staged rather than publish it — but that is
+the assumption under test, so it is verified rather than assumed:
+
+    create -> classify the returned post -> STAGED?  sanitise, write, delete
+                                         -> anything else? STOP, preserve
+
+An unknown status counts as published for cleanup purposes. ``_status_from``
+reads an unrecognised status as staged, which is right for the engine and wrong
+here: absence of evidence that a post went out is not evidence that it did not.
+On abort nothing is deleted and no fixture is written, because deleting would
+destroy the evidence and, if the post did go out, a delete through Buffer may
+not retract it from the network.
 
 Because of that, it does nothing without ``--execute``:
 
@@ -37,6 +47,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.publisher.base import STATUS_PUBLISHED  # noqa: E402
 from app.publisher.buffer import (  # noqa: E402
     API_BASE,
     CREATE_POST,
@@ -44,7 +55,33 @@ from app.publisher.buffer import (  # noqa: E402
     MODE_ADD_TO_QUEUE,
     POST_METRICS,
     SCHEDULING_AUTOMATIC,
+    STAGED_STATUSES,
+    _status_from,
 )
+
+# Observed publication state at capture. Three-way on purpose: "staged" and
+# "we cannot tell" are different findings, and only one of them is safe to
+# clean up automatically.
+STATE_STAGED = "STAGED_NOT_SENT"
+STATE_PUBLISHED = "PUBLISHED"
+STATE_AMBIGUOUS = "AMBIGUOUS"
+
+
+def classify_publication_state(post: Dict[str, Any]) -> str:
+    """What the response actually shows, using the adapter's own status logic.
+
+    Fails closed. ``_status_from`` reads an unrecognised status as staged, which
+    is the right default for the engine but the wrong one for deciding whether
+    to delete something: an unknown status is not evidence of a draft. Only a
+    documented staged status with no ``sentAt`` counts as confirmed.
+    """
+    if _status_from(post, True) == STATUS_PUBLISHED:
+        return STATE_PUBLISHED
+    if post.get("sentAt"):
+        return STATE_PUBLISHED
+    if str(post.get("status", "")).lower() in STAGED_STATUSES:
+        return STATE_STAGED
+    return STATE_AMBIGUOUS
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
@@ -207,18 +244,45 @@ def main(argv: Optional[List[str]] = None) -> int:
     post = created.get("post") or {}
     post_id = str(post.get("id") or "")
 
-    if post_id:
-        print("Buffer created draft post id: %s" % post_id)
-        print("Delete it in Buffer when you are done.")
-    else:
+    if not post_id:
         print("Buffer returned no post. Response: %s" % json.dumps(response)[:500])
+        return 1
+
+    # Verify before asserting anything, and before deleting anything.
+    state = classify_publication_state(post)
+    print("Buffer post id: %s" % post_id)
+    print("Observed publication state: %s" % state)
+
+    if state != STATE_STAGED:
+        print()
+        print("!! ABORTING. The post is not confirmed staged.")
+        print("!!")
+        print("!!   post id     : %s" % post_id)
+        print("!!   status      : %r" % post.get("status"))
+        print("!!   sentAt      : %r" % post.get("sentAt"))
+        print("!!   externalLink: %r" % post.get("externalLink"))
+        print("!!")
+        if state == STATE_PUBLISHED:
+            print("!! This post appears to have been PUBLISHED, not drafted.")
+            print("!! saveToDraft did not do what the adapter assumes.")
+        else:
+            print("!! The status is one this tool does not recognise, so it cannot")
+            print("!! confirm the post is unpublished. Unknown is treated as published.")
+        print("!!")
+        print("!! The post has NOT been deleted, and no fixture was written.")
+        print("!! Deleting could destroy the evidence, and if it did go out, a")
+        print("!! delete here may not retract it from the network.")
+        print("!! Inspect it in Buffer and clean up deliberately.")
+        print("!! Do not enable publishing until this is understood.")
+        return 2
 
     notes: List[str] = []
     document = {
         "_fixture": _meta(
             "Buffer createPost (saveToDraft: true)",
             notes,
-            "Captured live. Draft only; nothing was published.",
+            # Evidence, not intent: what was observed, not what was intended.
+            "Captured live. Observed publication state at capture: %s" % state,
         ),
         "request": {
             "query_name": "CreatePost",
@@ -231,8 +295,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     document["_fixture"]["sanitised"] = sorted(set(notes))
     print("wrote %s" % write_fixture("buffer_create_post_draft", document).name)
 
-    # Clean up: a contract capture should leave no residue in the account.
-    if post_id and not args.keep_draft:
+    # Clean up. Only reachable once the post is *confirmed* staged: the abort
+    # above returns before this point for published or ambiguous states.
+    if not args.keep_draft:
         from app.publisher.buffer import BufferConfig, BufferPublisher
 
         publisher = BufferPublisher(
@@ -246,7 +311,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("!! Post id %s is still in your Buffer account." % post_id)
             print("!! It is marked 'RDX Adapter Contract Test - DO NOT PUBLISH'.")
             print("!! Delete it manually.")
-    elif post_id:
+    else:
         print("--keep-draft: draft %s left in the account, marked as a test." % post_id)
 
     if args.metrics_post_id:

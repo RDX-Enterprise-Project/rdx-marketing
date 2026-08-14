@@ -218,10 +218,22 @@ Sequence to reach live-verified:
 1. Provision `BUFFER_ACCESS_TOKEN` and `BUFFER_CHANNEL_LINKEDIN` in the
    environment or an ignored secrets file. Never in chat, never committed.
 2. One controlled draft capture: `scripts/capture_fixtures.py --execute`.
-3. Verify staged and not sent.
-4. Delete the draft.
-5. Activate the five live contract tests.
-6. Decide whether the adapter is ready to push.
+3. The script classifies the returned post before doing anything else.
+   Only a **confirmed** staged post proceeds to sanitise, write, and delete.
+   Published or unrecognised aborts with exit 2, deletes nothing, writes no
+   fixture, and prints the post id, status, `sentAt`, and `externalLink` for
+   deliberate cleanup.
+4. Activate the five live contract tests.
+5. Decide whether the adapter is ready to push.
+
+Unknown status is treated as published for cleanup purposes. The adapter's
+`_status_from` reads an unrecognised status as staged — correct for the engine,
+where under-reporting a publication is the worse error — but wrong for deciding
+whether to delete something. Absence of evidence that a post went out is not
+evidence that it did not.
+
+The fixture records the observed result rather than the intent:
+`Observed publication state at capture: STAGED_NOT_SENT`.
 
 Publishing stays disabled throughout. `build_publisher` resolves to
 `NullPublisher` while `publisher.enabled` is false, so nothing can post even if
