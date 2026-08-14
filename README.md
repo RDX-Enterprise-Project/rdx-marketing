@@ -189,6 +189,44 @@ isolated to `app/publisher/buffer.py`.
 Publishing stays disabled and `default_create_as_draft: true` until a real token
 has confirmed those two, so nothing can post while it is being checked.
 
+## Buffer adapter status: prepared, not live-verified
+
+**No live Buffer call has ever been made from this repository.** As of
+2026-08-14 the adapter is prepared to the limit of what is possible without
+credentials, and is waiting on `BUFFER_ACCESS_TOKEN` and a channel id.
+
+Read the record precisely, because the difference matters:
+
+> Running `scripts/capture_fixtures.py --execute` without credentials prints
+> `BUFFER_ACCESS_TOKEN is not set` and exits 1. That guard runs **before the
+> HTTP client is constructed**, so there was no request, no account mutation,
+> and no adapter behaviour exercised.
+
+That is **not** a failed live test. It is the absence of a live test. No Buffer
+adapter defect has been demonstrated, because no Buffer adapter call has
+happened. Anyone reading the five skipped contract tests should draw the same
+conclusion: they are unrun, not failing.
+
+The adapter's schema was corrected against Buffer's published documentation,
+which caught a set of errors that would each have failed the first real call.
+Documentation is not the API, though — the SAM capture found two differences
+from GSA's own docs — so the remaining unknowns stay unknown until one
+controlled call settles them.
+
+Sequence to reach live-verified:
+
+1. Provision `BUFFER_ACCESS_TOKEN` and `BUFFER_CHANNEL_LINKEDIN` in the
+   environment or an ignored secrets file. Never in chat, never committed.
+2. One controlled draft capture: `scripts/capture_fixtures.py --execute`.
+3. Verify staged and not sent.
+4. Delete the draft.
+5. Activate the five live contract tests.
+6. Decide whether the adapter is ready to push.
+
+Publishing stays disabled throughout. `build_publisher` resolves to
+`NullPublisher` while `publisher.enabled` is false, so nothing can post even if
+a token is present.
+
 ## Contract tests
 
 `tests/test_contract_buffer.py` pins the adapter to stored response fixtures in
