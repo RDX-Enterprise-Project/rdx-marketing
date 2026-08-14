@@ -1,24 +1,36 @@
 """Buffer publishing gateway.
 
-Buffer fronts LinkedIn, Facebook, and Instagram through one API, which is why
-the engine does not start by building three separate social integrations. It is
-reached only through :class:`~app.publisher.base.SocialPublisher`, so replacing
-it later does not touch the marketing engine.
+Buffer fronts LinkedIn, Facebook, and Instagram through one GraphQL API, which
+is why the engine does not start by building three separate social
+integrations. It is reached only through
+:class:`~app.publisher.base.SocialPublisher`, so replacing it later does not
+touch the marketing engine.
 
-Buffer supports creating a post as a draft rather than publishing it. The engine
-uses that deliberately: when policy says an item needs a human, the post is
-staged as a draft at the provider too, so the approval control exists on both
+Schema verified against Buffer's developer documentation on 2026-08-14:
+
+* endpoint ``https://api.buffer.com``, ``Authorization: Bearer <key>``
+* mutation ``createPost(input: CreatePostInput!)``
+* required input fields: ``channelId``, ``assets`` (``[]`` for a text-only
+  post — it is non-null, so omitting it fails the whole call), ``mode``
+  (``addToQueue`` | ``customScheduled``) and ``schedulingType``
+* ``dueAt`` is ISO-8601 UTC and is only meaningful with ``customScheduled``
+* drafts are ``saveToDraft: true`` on the same mutation, not a separate one
+* the response is a union: ``PostActionSuccess`` or ``MutationError``
+* per-network extras such as a first comment live in ``metadata``
+* ``Post.metrics`` is a **list** of typed metric objects, not named numeric
+  fields, so it is mapped by ``type`` rather than read positionally
+
+Buffer supports creating a post as a draft rather than publishing it, and the
+engine uses that deliberately: when policy says an item needs a human, the post
+is staged as a draft at the provider too, so the approval control exists on both
 sides of the boundary.
-
-Channel ids are resolved from configuration once, not guessed per call. A
-platform with no configured channel is a hard failure with a clear message, not
-a silent skip.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol
+import datetime as dt
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Protocol
 
 from .base import (
     STATUS_FAILED,
@@ -30,25 +42,72 @@ from .base import (
 )
 
 PROVIDER = "buffer"
+API_BASE = "https://api.buffer.com"
+
+# ShareMode
+MODE_ADD_TO_QUEUE = "addToQueue"
+MODE_CUSTOM_SCHEDULED = "customScheduled"
+
+# SchedulingType
+SCHEDULING_AUTOMATIC = "automatic"
+SCHEDULING_NOTIFICATION = "notification"
 
 CREATE_POST = """
-mutation CreatePost($input: PostCreateInput!) {
-  postCreate(input: $input) {
-    id
-    status
-    permalink
+mutation CreatePost($input: CreatePostInput!) {
+  createPost(input: $input) {
+    ... on PostActionSuccess {
+      post {
+        id
+        text
+        dueAt
+        status
+      }
+    }
+    ... on MutationError {
+      message
+    }
   }
 }
 """
 
 POST_METRICS = """
-query PostMetrics($id: ID!) {
+query PostMetrics($id: PostId!) {
   post(id: $id) {
     id
-    metrics { impressions reach reactions comments shares clicks }
+    status
+    metrics {
+      type
+      name
+      value
+      unit
+    }
   }
 }
 """
+
+#: Buffer's PostMetricType values mapped onto the engine's own fields.
+METRIC_TYPE_MAP = {
+    "impressions": "impressions",
+    "reach": "reach",
+    "reactions": "reactions",
+    "likes": "reactions",
+    "comments": "comments",
+    "shares": "shares",
+    "reposts": "shares",
+    "clicks": "clicks",
+}
+
+#: Where a first comment lives, per network, inside PostInputMetaData.
+FIRST_COMMENT_METADATA_KEY = {
+    "linkedin": "linkedin",
+    "facebook": "facebook",
+    "instagram": "instagram",
+}
+
+#: GraphQL error codes that mean "this request was wrong", not "try later".
+CLIENT_ERROR_CODES = frozenset(
+    {"BAD_USER_INPUT", "UNAUTHENTICATED", "FORBIDDEN", "VALIDATION_ERROR", "GRAPHQL_VALIDATION_FAILED"}
+)
 
 
 class GraphQlTransport(Protocol):
@@ -68,11 +127,12 @@ class MissingChannel(RuntimeError):
 
 @dataclass
 class BufferConfig:
-    api_base: str
-    token: str
-    channels: Dict[str, str]
+    api_base: str = API_BASE
+    token: str = ""
+    channels: Dict[str, str] = field(default_factory=dict)
     timeout_seconds: int = 45
     default_create_as_draft: bool = True
+    scheduling_type: str = SCHEDULING_AUTOMATIC
 
 
 class BufferPublisher:
@@ -82,14 +142,7 @@ class BufferPublisher:
         self._transport = transport
         self._config = config
 
-    def _channel(self, platform: str) -> str:
-        channel = self._config.channels.get(platform)
-        if not channel:
-            raise MissingChannel(
-                "no Buffer channel configured for %r; set the channel id in "
-                "config/platforms.yaml before publishing" % platform
-            )
-        return channel
+    # -- publishing --------------------------------------------------------- #
 
     def publish(self, request: PublishRequest) -> PublishResult:
         try:
@@ -104,23 +157,7 @@ class BufferPublisher:
             )
 
         create_as_draft = request.create_as_draft or self._config.default_create_as_draft
-
-        variables: Dict[str, Any] = {
-            "input": {
-                "channelId": channel,
-                "text": request.body,
-                "isDraft": create_as_draft,
-                "postType": request.post_type,
-            }
-        }
-        if request.scheduled_for is not None:
-            variables["input"]["scheduledAt"] = request.scheduled_for.isoformat()
-        if request.media_ids:
-            variables["input"]["media"] = [{"id": m} for m in request.media_ids]
-        if request.first_comment:
-            variables["input"]["firstComment"] = request.first_comment
-        if request.idempotency_key:
-            variables["input"]["clientRequestId"] = request.idempotency_key
+        variables = {"input": self._build_input(request, channel, create_as_draft)}
 
         try:
             response = self._transport.post_json(
@@ -139,27 +176,78 @@ class BufferPublisher:
 
         errors = response.get("errors")
         if errors:
-            message = "; ".join(str(e.get("message", e)) for e in errors)
             return PublishResult(
                 status=STATUS_FAILED,
                 provider=PROVIDER,
-                error_message=message,
-                # 4xx-shaped GraphQL errors are usually our fault, not a blip.
+                error_message="; ".join(str(e.get("message", e)) for e in errors),
                 retryable=not _is_client_error(errors),
                 raw=response,
             )
 
-        created = ((response.get("data") or {}).get("postCreate") or {})
-        provider_status = str(created.get("status", "")).lower()
-        status = STATUS_PUBLISHED if provider_status == "sent" else STATUS_SCHEDULED
+        payload = (response.get("data") or {}).get("createPost") or {}
+
+        # The union's error arm. A MutationError is a real refusal, not a blip.
+        if payload.get("message") and not payload.get("post"):
+            return PublishResult(
+                status=STATUS_FAILED,
+                provider=PROVIDER,
+                error_message=str(payload["message"]),
+                retryable=False,
+                raw=response,
+            )
+
+        post = payload.get("post") or {}
+        if not post.get("id"):
+            return PublishResult(
+                status=STATUS_FAILED,
+                provider=PROVIDER,
+                error_message="Buffer returned no post id: %s" % payload,
+                retryable=True,
+                raw=response,
+            )
 
         return PublishResult(
-            status=status,
+            status=_status_from(post, create_as_draft),
             provider=PROVIDER,
-            provider_post_id=str(created.get("id")) if created.get("id") else None,
-            permalink=created.get("permalink"),
+            provider_post_id=str(post["id"]),
             raw=response,
         )
+
+    def _build_input(
+        self, request: PublishRequest, channel: str, create_as_draft: bool
+    ) -> Dict[str, Any]:
+        scheduled = request.scheduled_for is not None
+        payload: Dict[str, Any] = {
+            "channelId": channel,
+            "text": request.body,
+            # Non-null on CreatePostInput. A text-only post must still send an
+            # empty list, and omitting it fails the entire call.
+            "assets": [{"id": media_id} for media_id in request.media_ids],
+            "mode": MODE_CUSTOM_SCHEDULED if scheduled else MODE_ADD_TO_QUEUE,
+            "schedulingType": self._config.scheduling_type,
+            "saveToDraft": create_as_draft,
+            # Buffer's own approval workflow. Kept in step with ours: if this
+            # engine says a human is needed, Buffer is told the same thing.
+            "needsApproval": create_as_draft,
+        }
+        if scheduled:
+            payload["dueAt"] = _iso8601_utc(request.scheduled_for)
+
+        metadata = self._metadata(request)
+        if metadata:
+            payload["metadata"] = metadata
+        return payload
+
+    def _metadata(self, request: PublishRequest) -> Dict[str, Any]:
+        """Per-network extras. Currently the first comment."""
+        if not request.first_comment:
+            return {}
+        key = FIRST_COMMENT_METADATA_KEY.get(request.platform)
+        if key is None:
+            return {}
+        return {key: {"firstComment": request.first_comment}}
+
+    # -- metrics ------------------------------------------------------------ #
 
     def fetch_metrics(self, provider_post_id: str, platform: str) -> Optional[MetricsSample]:
         try:
@@ -172,28 +260,76 @@ class BufferPublisher:
         except Exception:  # noqa: BLE001 - a metrics gap is not a publishing failure
             return None
 
+        if response.get("errors"):
+            return None
+
         post = (response.get("data") or {}).get("post") or {}
-        metrics = post.get("metrics") or {}
+        metrics = post.get("metrics")
         if not metrics:
+            return None
+
+        # Post.metrics is a list of typed objects, so it is mapped by `type`.
+        # Reading it positionally, or expecting named numeric fields, silently
+        # produces wrong numbers rather than an error.
+        values: Dict[str, int] = {}
+        for metric in metrics:
+            if not isinstance(metric, dict):
+                continue
+            field_name = METRIC_TYPE_MAP.get(str(metric.get("type", "")).lower())
+            if field_name is None:
+                continue
+            value = _int(metric.get("value"))
+            if value is None:
+                continue
+            values[field_name] = values.get(field_name, 0) + value
+
+        if not values:
             return None
 
         return MetricsSample(
             provider_post_id=provider_post_id,
             platform=platform,
-            impressions=_int(metrics.get("impressions")),
-            reach=_int(metrics.get("reach")),
-            reactions=_int(metrics.get("reactions")),
-            comments=_int(metrics.get("comments")),
-            shares=_int(metrics.get("shares")),
-            clicks=_int(metrics.get("clicks")),
+            impressions=values.get("impressions"),
+            reach=values.get("reach"),
+            reactions=values.get("reactions"),
+            comments=values.get("comments"),
+            shares=values.get("shares"),
+            clicks=values.get("clicks"),
             raw=response,
         )
+
+    # -- helpers ------------------------------------------------------------ #
+
+    def _channel(self, platform: str) -> str:
+        channel = self._config.channels.get(platform)
+        if not channel:
+            raise MissingChannel(
+                "no Buffer channel configured for %r; set the channel id in "
+                "config/platforms.yaml before publishing" % platform
+            )
+        return channel
 
     def _headers(self) -> Dict[str, str]:
         return {
             "Authorization": "Bearer %s" % self._config.token,
             "Content-Type": "application/json",
         }
+
+
+def _status_from(post: Dict[str, Any], create_as_draft: bool) -> str:
+    status = str(post.get("status", "")).lower()
+    if status == "sent":
+        return STATUS_PUBLISHED
+    # "draft" and "buffer" (queued) are both staged, not live.
+    return STATUS_SCHEDULED
+
+
+def _iso8601_utc(value: dt.datetime) -> str:
+    """Buffer expects ISO-8601 UTC, e.g. 2026-03-10T15:00:00.000Z."""
+    if value.tzinfo is None:
+        raise ValueError("scheduled_for must be timezone-aware")
+    utc = value.astimezone(dt.timezone.utc)
+    return utc.strftime("%Y-%m-%dT%H:%M:%S.") + "%03dZ" % (utc.microsecond // 1000)
 
 
 def _int(value: Any) -> Optional[int]:
@@ -206,6 +342,6 @@ def _int(value: Any) -> Optional[int]:
 def _is_client_error(errors: Any) -> bool:
     for error in errors or []:
         code = str(((error or {}).get("extensions") or {}).get("code", "")).upper()
-        if code in ("BAD_USER_INPUT", "UNAUTHENTICATED", "FORBIDDEN", "VALIDATION_ERROR"):
+        if code in CLIENT_ERROR_CODES:
             return True
     return False

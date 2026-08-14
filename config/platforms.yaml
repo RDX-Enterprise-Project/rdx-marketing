@@ -9,9 +9,13 @@ version: "2026.08.14"
 publisher:
   provider: buffer
   enabled: false
-  api_base: "https://graph.buffer.com/"
+  # Verified against Buffer's developer docs on 2026-08-14.
+  api_base: "https://api.buffer.com"
   token_env: "BUFFER_ACCESS_TOKEN"
   request_timeout_seconds: 45
+  # SchedulingType: `automatic` publishes for you; `notification` only reminds
+  # a human to post. Automatic is required for unattended publishing.
+  scheduling_type: "automatic"
   # Posts are created in Buffer as drafts unless the policy engine has cleared
   # the item for automatic publication. The approval control therefore exists at
   # the publishing layer as well as in this application.

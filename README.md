@@ -150,15 +150,28 @@ the template stands and the run continues.
 | --- | --- |
 | 1. Schema, classifications, evidence model, policy engine | done |
 | 2. Content calendar and canonical content model | done |
-| 3. Buffer integration | done (adapter + retry semantics; **account/channel discovery not implemented** — channel ids are configured by hand) |
+| 3. Buffer integration | done, schema verified against the docs (adapter + retry semantics; **account/channel discovery not implemented** — channel ids are configured by hand) |
 | 4. Draft, approval, scheduling, publication lifecycle | done |
 | 5. LinkedIn / Facebook / Instagram adapters | done |
 | 6. Metrics collection and weekly report | done |
 | 7. AI drafting adapters with provider/cost controls | done (interface, ledger, budget; no live provider wired) |
 | 8. CaptureOS marketing-event integration | done |
 
-The Buffer GraphQL mutation and metrics query in `app/publisher/buffer.py` are
-written against Buffer's documented shape and have **not been exercised against
-the live API**. Verify field names with a real token before enabling publishing,
-and keep `default_create_as_draft: true` for the first live runs so nothing
-posts while that is being confirmed.
+## Verified against Buffer's developer documentation, 2026-08-14
+
+| Thing | Correct shape | Note |
+| --- | --- | --- |
+| Endpoint | `https://api.buffer.com`, `Authorization: Bearer <key>` | |
+| Mutation | `createPost(input: CreatePostInput!)` | Returns a union — both `PostActionSuccess` and `MutationError` arms must be selected. |
+| Required non-null input | `channelId`, `assets`, `mode`, `schedulingType` | `assets` must be `[]` even for a text-only post; omitting it fails the whole call. |
+| Scheduling | `mode: customScheduled` with `dueAt` in ISO-8601 UTC | `addToQueue` uses the next free slot instead. |
+| Drafts | `saveToDraft: true` on the same mutation | There is no `isDraft` field and no separate draft mutation. |
+| First comment | inside `metadata`, per network | |
+| Metrics | `Post.metrics` is a **list** of `{type, name, value, unit}` | Mapped by `type`. Reading it as named numeric fields would silently produce wrong numbers rather than an error. |
+
+Still unconfirmed: the exact `PostInputMetaData` field name for a first comment
+per network, and the `PostId` scalar name in the metrics query. Both are
+isolated to `app/publisher/buffer.py`.
+
+Publishing stays disabled and `default_create_as_draft: true` until a real token
+has confirmed those two, so nothing can post while it is being checked.

@@ -49,14 +49,17 @@ def build_publisher(config: AppConfig) -> SocialPublisher:
         if value:
             channels[platform] = value
 
+    from .publisher.buffer import API_BASE, SCHEDULING_AUTOMATIC
+
     return BufferPublisher(
         RequestsHttpClient(),
         BufferConfig(
-            api_base=str(publisher_cfg.get("api_base", "https://graph.buffer.com/")),
+            api_base=str(publisher_cfg.get("api_base", API_BASE)),
             token=token,
             channels=channels,
             timeout_seconds=int(publisher_cfg.get("request_timeout_seconds", 45)),
             default_create_as_draft=bool(publisher_cfg.get("default_create_as_draft", True)),
+            scheduling_type=str(publisher_cfg.get("scheduling_type", SCHEDULING_AUTOMATIC)),
         ),
     )
 
