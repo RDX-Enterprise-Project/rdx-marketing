@@ -23,14 +23,27 @@ events + calendar ──> content object ──> platform variants
 ## Quick start
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest
+cd rdx-marketing
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest
 ```
+
+**Every command in this README assumes that venv is active** and that you are in
+the repository root. Without it, `python` is whatever your system or pyenv
+provides and has none of the dependencies installed. If you would rather not
+activate, prefix each command with `.venv/bin/` instead:
+`.venv/bin/python -m pytest`.
+
+This repo and `rdx-intelligence` have **separate** venvs, and each has its own
+`scripts/capture_fixtures.py` doing a different job. Run `deactivate` when you
+switch between them.
 
 A dry run against SQLite with publishing disabled:
 
 ```bash
-.venv/bin/python -m app.daily_run --database-url "sqlite+pysqlite:///./rdx_marketing.db" --json
+python -m app.daily_run --database-url "sqlite+pysqlite:///./rdx_marketing.db" --json
 ```
 
 Work the approval queue:
