@@ -1,14 +1,14 @@
 {
   "_fixture": {
     "provenance": "live",
-    "captured_at": "2026-08-15T21:04:35Z",
-    "api": "Buffer createPost (saveToDraft: true)",
+    "captured_at": "2026-08-15T21:06:02Z",
+    "api": "Buffer createPost with metadata.firstComment",
     "endpoint": "https://api.buffer.com",
     "documented_at": "2026-08-14",
     "sanitised": [
       "redacted channelId"
     ],
-    "note": "Captured live. Observed publication state at capture: STAGED_NOT_SENT"
+    "note": "Captured live. Buffer parsed the metadata and objected to the PLAN, not the field, which is what confirms the key is correct. No post was created."
   },
   "request": {
     "query_name": "CreatePost",
@@ -20,21 +20,19 @@
         "mode": "addToQueue",
         "schedulingType": "automatic",
         "saveToDraft": true,
-        "needsApproval": false
+        "needsApproval": false,
+        "metadata": {
+          "linkedin": {
+            "firstComment": "RDX Adapter Contract Test - DO NOT PUBLISH."
+          }
+        }
       }
     }
   },
   "payload": {
     "data": {
       "createPost": {
-        "post": {
-          "id": "REDACTED_POST_ID",
-          "text": "RDX Adapter Contract Test - DO NOT PUBLISH. Created by scripts/capture_fixtures.py to pin the Buffer API schema. Safe to delete.",
-          "dueAt": null,
-          "status": "draft",
-          "sentAt": null,
-          "externalLink": null
-        }
+        "message": "Invalid post: LinkedIn first comment requires a paid plan. Please upgrade to use this feature."
       }
     }
   }

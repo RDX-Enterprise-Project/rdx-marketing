@@ -120,8 +120,8 @@ def test_a_draft_uses_saveToDraft_not_isDraft():
     sent = transport.calls[0]["payload"]["variables"]["input"]
     assert sent["saveToDraft"] is True
     assert "isDraft" not in sent
-    # Buffer's own approval flag is kept in step with ours.
-    assert sent["needsApproval"] is True
+    # needsApproval is Buffer's own workflow, not ours, and defaults off.
+    assert sent["needsApproval"] is False
     assert result.status == STATUS_SCHEDULED
 
 
@@ -388,3 +388,41 @@ def test_every_metric_type_in_the_live_enum_is_recognised():
     }
     unrecognised = sorted(v for v in live_enum if v.lower() not in ALL_KNOWN_METRIC_TYPES)
     assert not unrecognised, unrecognised
+
+
+def test_needs_approval_is_off_by_default_and_independent_of_drafting():
+    """Buffer rejects needsApproval:true unless the channel policy requires it.
+
+    Confirmed by a live call on 2026-08-15:
+      "needsApproval is only valid when your posting policy on this channel
+       requires approval"
+
+    It is Buffer's own team-approval feature. RDX's editorial gate is the policy
+    engine plus the approval queue, and `saveToDraft` is what stages the post.
+    Coupling the two failed every call on a normally-configured channel.
+    """
+    for as_draft in (True, False):
+        transport = FakeTransport(_success())
+        _publisher(transport).publish(_request(create_as_draft=as_draft))
+        sent = transport.calls[0]["payload"]["variables"]["input"]
+        assert sent["needsApproval"] is False, as_draft
+        # saveToDraft stays on either way: default_create_as_draft forces it,
+        # which is the safety default and independent of needsApproval.
+        assert sent["saveToDraft"] is True, as_draft
+
+
+def test_save_to_draft_follows_the_request_once_the_default_is_off():
+    """The two flags are genuinely independent, in both directions."""
+    transport = FakeTransport(_success())
+    _publisher(transport, default_create_as_draft=False).publish(
+        _request(create_as_draft=False)
+    )
+    sent = transport.calls[0]["payload"]["variables"]["input"]
+    assert sent["saveToDraft"] is False
+    assert sent["needsApproval"] is False
+
+
+def test_needs_approval_can_be_turned_on_for_a_channel_that_requires_it():
+    transport = FakeTransport(_success())
+    _publisher(transport, needs_approval=True).publish(_request(create_as_draft=True))
+    assert transport.calls[0]["payload"]["variables"]["input"]["needsApproval"] is True

@@ -171,6 +171,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="actually call Buffer. Without this the script only prints the request.",
     )
     parser.add_argument(
+        "--no-first-comment",
+        action="store_true",
+        help="omit the first comment; Buffer gates it behind a paid plan",
+    )
+    parser.add_argument(
         "--keep-draft",
         action="store_true",
         help="do not delete the test draft afterwards (default is to delete it)",
@@ -190,14 +195,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             "mode": MODE_ADD_TO_QUEUE,
             "schedulingType": SCHEDULING_AUTOMATIC,
             "saveToDraft": True,
-            "needsApproval": True,
-            "metadata": {
-                FIRST_COMMENT_METADATA_KEY[args.platform]: {
-                    "firstComment": FIRST_COMMENT_TEXT
-                }
-            },
+            # Buffer's own team-approval feature, off unless the channel
+            # policy requires it. Sending true otherwise fails the call.
+            "needsApproval": False,
         }
     }
+    if not args.no_first_comment:
+        variables["input"]["metadata"] = {
+            FIRST_COMMENT_METADATA_KEY[args.platform]: {"firstComment": FIRST_COMMENT_TEXT}
+        }
 
     print("POST %s" % API_BASE)
     print("Authorization: Bearer REDACTED")

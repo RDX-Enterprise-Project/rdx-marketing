@@ -191,6 +191,17 @@ class BufferConfig:
     timeout_seconds: int = 45
     default_create_as_draft: bool = True
     scheduling_type: str = SCHEDULING_AUTOMATIC
+    #: Buffer's *own* team-approval workflow, which is a different thing from
+    #: RDX's editorial approval. Buffer rejects `needsApproval: true` outright
+    #: unless the channel's posting policy is configured to require approval
+    #: (confirmed by a live call, 2026-08-15), and the policy is not readable
+    #: from the API — `Channel` exposes no approval or policy field. So this is
+    #: configuration, defaulting to off.
+    #:
+    #: RDX's approval gate does not depend on it: the policy engine and the
+    #: approval queue decide what may publish, and `saveToDraft` is what stages
+    #: the post at the provider.
+    needs_approval: bool = False
 
 
 class BufferPublisher:
@@ -307,10 +318,12 @@ class BufferPublisher:
             "assets": [{"id": media_id} for media_id in request.media_ids],
             "mode": MODE_CUSTOM_SCHEDULED if scheduled else MODE_ADD_TO_QUEUE,
             "schedulingType": self._config.scheduling_type,
+            # This is what actually stages a post at the provider, and it is
+            # what RDX's approval gate relies on.
             "saveToDraft": create_as_draft,
-            # Buffer's own approval workflow. Kept in step with ours: if this
-            # engine says a human is needed, Buffer is told the same thing.
-            "needsApproval": create_as_draft,
+            # Buffer's own team-approval feature, not ours. Sending true when
+            # the channel is not configured for it fails the whole call.
+            "needsApproval": self._config.needs_approval,
         }
         if scheduled:
             payload["dueAt"] = _iso8601_utc(request.scheduled_for)

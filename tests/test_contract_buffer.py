@@ -15,6 +15,7 @@ import pytest
 
 from app.publisher.buffer import (
     ALL_KNOWN_METRIC_TYPES,
+    FIRST_COMMENT_METADATA_KEY,
     CREATE_POST,
     CREATE_POST_REQUIRED_INPUT,
     CREATE_POST_RESPONSE_KEYS,
@@ -30,6 +31,7 @@ from .test_buffer_adapter import CHANNELS, FakeTransport, _request
 
 CREATE = "buffer_create_post_draft"
 METRICS = "buffer_post_metrics"
+PROBE = "buffer_first_comment_probe"
 
 
 def _publisher(transport):
@@ -194,17 +196,58 @@ def test_the_live_call_was_accepted_at_all():
     )
 
 
-@pytest.mark.skipif(not fixtures.is_live(CREATE), reason=fixtures.requires_live(CREATE))
+@pytest.mark.skipif(not fixtures.is_live(PROBE), reason=fixtures.requires_live(PROBE))
 def test_the_live_response_confirms_the_first_comment_metadata_key():
-    """Unknown #1. A wrong key comes back as a MutationError naming it."""
-    sent = _request_block()["variables"]["input"]
-    assert sent.get("metadata"), "the capture did not send a first comment; re-capture with one"
+    """Unknown #1, settled by a rejection rather than a success.
 
-    create = fixtures.payload(CREATE)["data"]["createPost"]
-    assert create.get("post"), (
-        "Buffer rejected the metadata shape: %s. Correct FIRST_COMMENT_METADATA_KEY."
-        % create.get("message")
+    Buffer gates LinkedIn first comments behind a paid plan, so this call could
+    not succeed on the current account. What it proves is subtler and still
+    sufficient: Buffer *parsed* ``metadata.linkedin.firstComment``, understood
+    it as a first-comment request, and objected to the plan. A wrong key would
+    have produced a schema validation error naming the field instead.
+
+    No post was created by this probe.
+    """
+    import json
+    from pathlib import Path
+
+    document = json.loads(
+        (Path(fixtures.FIXTURE_DIR) / ("%s.json" % PROBE)).read_text(encoding="utf-8")
     )
+    sent = document["request"]["variables"]["input"]
+    assert sent.get("metadata"), "the probe did not send a first comment"
+    assert set(sent["metadata"]) <= set(FIRST_COMMENT_METADATA_KEY.values())
+
+    create = document["payload"]["data"]["createPost"]
+    message = str(create.get("message") or "")
+
+    if create.get("post"):
+        return  # accepted outright; the key is correct
+
+    lowered = message.lower()
+    assert "first comment" in lowered, (
+        "Buffer rejected the metadata for a reason that is not about the first "
+        "comment, so the key may be wrong: %s" % message
+    )
+    # A plan gate is a billing answer, not a schema answer. The field was
+    # understood.
+    assert any(w in lowered for w in ("plan", "upgrade", "billing")), (
+        "the rejection is not a plan gate; treat FIRST_COMMENT_METADATA_KEY as "
+        "unconfirmed: %s" % message
+    )
+
+
+@pytest.mark.skipif(not fixtures.is_live(PROBE), reason=fixtures.requires_live(PROBE))
+def test_the_first_comment_probe_created_nothing():
+    """Evidence gathering must not leave a post behind."""
+    import json
+    from pathlib import Path
+
+    document = json.loads(
+        (Path(fixtures.FIXTURE_DIR) / ("%s.json" % PROBE)).read_text(encoding="utf-8")
+    )
+    create = document["payload"]["data"]["createPost"]
+    assert not create.get("post"), "the probe created a post; it should have been rejected"
 
 
 @pytest.mark.skipif(not fixtures.is_live(CREATE), reason=fixtures.requires_live(CREATE))
