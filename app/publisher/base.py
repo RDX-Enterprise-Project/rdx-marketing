@@ -65,6 +65,10 @@ class MetricsSample:
     comments: Optional[int] = None
     shares: Optional[int] = None
     clicks: Optional[int] = None
+    #: Supplied by the provider when it computes one itself. Preferred over a
+    #: derived figure, because the platform's own definition is the one the
+    #: numbers elsewhere in its reporting will agree with.
+    reported_engagement_rate: Optional[float] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -72,6 +76,8 @@ class MetricsSample:
         return sum(v or 0 for v in (self.reactions, self.comments, self.shares, self.clicks))
 
     def engagement_rate(self) -> Optional[float]:
+        if self.reported_engagement_rate is not None:
+            return round(self.reported_engagement_rate, 6)
         base = self.impressions or self.reach
         if not base:
             return None

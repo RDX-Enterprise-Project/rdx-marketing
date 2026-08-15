@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from app.publisher.buffer import (
+    ALL_KNOWN_METRIC_TYPES,
     CREATE_POST,
     CREATE_POST_REQUIRED_INPUT,
     CREATE_POST_RESPONSE_KEYS,
@@ -153,17 +154,18 @@ def test_the_parser_reads_the_captured_metrics_response():
 def test_every_metric_type_in_the_fixture_is_one_the_adapter_maps():
     """An unmapped type is silently dropped, so the contract names them."""
     metrics = fixtures.payload(METRICS)["data"]["post"]["metrics"]
-    unmapped = sorted(
+    unknown = sorted(
         {
             str(entry["type"])
             for entry in metrics
-            if str(entry["type"]).lower() not in METRIC_TYPE_MAP
+            if str(entry["type"]).lower() not in ALL_KNOWN_METRIC_TYPES
         }
     )
-    assert not unmapped, (
-        "Buffer reports metric type(s) the adapter drops on the floor: %s. "
-        "Add them to METRIC_TYPE_MAP or they never reach the weekly report."
-        % unmapped
+    assert not unknown, (
+        "Buffer reports metric type(s) the adapter does not recognise at all: %s. "
+        "Either map them in METRIC_TYPE_MAP or list them in "
+        "KNOWN_UNMAPPED_METRICS, so a deliberate omission stays distinct from a "
+        "silent drop." % unknown
     )
 
 

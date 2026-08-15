@@ -88,10 +88,12 @@ mutation DeletePost($input: DeletePostInput!) {
 """
 
 POST_METRICS = """
-query PostMetrics($id: PostId!) {
-  post(id: $id) {
+query PostMetrics($input: PostInput!) {
+  post(input: $input) {
     id
     status
+    sentAt
+    metricsUpdatedAt
     metrics {
       type
       name
@@ -102,7 +104,8 @@ query PostMetrics($id: PostId!) {
 }
 """
 
-#: Buffer's PostMetricType values mapped onto the engine's own fields.
+#: Count-style PostMetricType values mapped onto MetricsSample fields.
+#: Verified against the live schema 2026-08-15.
 METRIC_TYPE_MAP = {
     "impressions": "impressions",
     "reach": "reach",
@@ -111,8 +114,25 @@ METRIC_TYPE_MAP = {
     "comments": "comments",
     "shares": "shares",
     "reposts": "shares",
+    "quotes": "shares",
     "clicks": "clicks",
 }
+
+#: Rate-style metrics. Buffer computes these itself, and its number is
+#: authoritative over anything derived from the counts.
+RATE_METRIC_TYPES = frozenset({"engagementrate"})
+
+#: Real PostMetricType values with no home on MetricsSample. Listed explicitly
+#: so the contract test can tell "we chose not to carry this" apart from
+#: "Buffer added something new and we are silently dropping it".
+KNOWN_UNMAPPED_METRICS = frozenset(
+    {"follows", "postcount", "saves", "totaltimewatched", "viewers", "views"}
+)
+
+#: Everything the adapter recognises, in any capacity.
+ALL_KNOWN_METRIC_TYPES = (
+    frozenset(METRIC_TYPE_MAP) | RATE_METRIC_TYPES | KNOWN_UNMAPPED_METRICS
+)
 
 #: Where a first comment lives, per network, inside PostInputMetaData.
 FIRST_COMMENT_METADATA_KEY = {
@@ -315,7 +335,8 @@ class BufferPublisher:
         try:
             response = self._transport.post_json(
                 self._config.api_base,
-                {"query": POST_METRICS, "variables": {"id": provider_post_id}},
+                # post takes PostInput, not a bare id argument.
+                {"query": POST_METRICS, "variables": {"input": {"id": provider_post_id}}},
                 headers=self._headers(),
                 timeout=self._config.timeout_seconds,
             )
@@ -334,18 +355,29 @@ class BufferPublisher:
         # Reading it positionally, or expecting named numeric fields, silently
         # produces wrong numbers rather than an error.
         values: Dict[str, int] = {}
+        reported_rate: Optional[float] = None
+
         for metric in metrics:
             if not isinstance(metric, dict):
                 continue
-            field_name = METRIC_TYPE_MAP.get(str(metric.get("type", "")).lower())
+            kind = str(metric.get("type", "")).lower()
+            # PostMetric.value is a Float. Truncating it to int would turn an
+            # engagement rate of 0.034 into 0.
+            raw_value = _float(metric.get("value"))
+            if raw_value is None:
+                continue
+
+            if kind in RATE_METRIC_TYPES:
+                # Buffer computes this itself; its number beats ours.
+                reported_rate = raw_value
+                continue
+
+            field_name = METRIC_TYPE_MAP.get(kind)
             if field_name is None:
                 continue
-            value = _int(metric.get("value"))
-            if value is None:
-                continue
-            values[field_name] = values.get(field_name, 0) + value
+            values[field_name] = values.get(field_name, 0) + int(round(raw_value))
 
-        if not values:
+        if not values and reported_rate is None:
             return None
 
         return MetricsSample(
@@ -357,6 +389,7 @@ class BufferPublisher:
             comments=values.get("comments"),
             shares=values.get("shares"),
             clicks=values.get("clicks"),
+            reported_engagement_rate=reported_rate,
             raw=response,
         )
 
@@ -413,6 +446,14 @@ def _iso8601_utc(value: dt.datetime) -> str:
 def _int(value: Any) -> Optional[int]:
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float(value: Any) -> Optional[float]:
+    """PostMetric.value is a Float; counts and rates both arrive through it."""
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return None
 

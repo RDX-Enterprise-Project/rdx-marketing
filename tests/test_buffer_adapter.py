@@ -321,3 +321,70 @@ def test_an_unknown_status_without_sentAt_reads_as_staged():
     result = _publisher(transport).publish(_request())
     assert result.status == STATUS_SCHEDULED
     assert result.raw["data"]["createPost"]["post"]["status"] == "mystery"
+
+
+# --------------------------------------------------------------------------- #
+# schema corrections from live introspection, 2026-08-15
+# --------------------------------------------------------------------------- #
+
+
+def test_the_metrics_query_uses_PostInput_not_a_bare_id():
+    """`post` takes PostInput, confirmed by introspecting the live schema."""
+    transport = FakeTransport(_metrics_response([{"type": "impressions", "value": 10}]))
+    _publisher(transport).fetch_metrics("post_1", "linkedin")
+
+    payload = transport.calls[0]["payload"]
+    assert "$input: PostInput!" in payload["query"]
+    assert "post(input: $input)" in payload["query"]
+    assert payload["variables"] == {"input": {"id": "post_1"}}
+
+
+def test_a_float_metric_value_is_not_truncated_to_zero():
+    """PostMetric.value is a Float. int() would turn a 3.4% rate into 0."""
+    transport = FakeTransport(
+        _metrics_response(
+            [
+                {"type": "impressions", "value": 2870.0},
+                {"type": "engagementRate", "value": 0.0341},
+            ]
+        )
+    )
+    sample = _publisher(transport).fetch_metrics("post_1", "linkedin")
+    assert sample.impressions == 2870
+    assert sample.engagement_rate() == 0.0341
+
+
+def test_buffers_own_engagement_rate_beats_our_derived_one():
+    """The platform's definition is the one its other reporting will agree with."""
+    transport = FakeTransport(
+        _metrics_response(
+            [
+                {"type": "impressions", "value": 1000},
+                {"type": "reactions", "value": 10},
+                {"type": "engagementRate", "value": 0.25},
+            ]
+        )
+    )
+    sample = _publisher(transport).fetch_metrics("post_1", "linkedin")
+    # Derived would be 10/1000 = 0.01. Buffer says 0.25, so Buffer wins.
+    assert sample.engagement_rate() == 0.25
+
+
+def test_a_post_reporting_only_a_rate_still_yields_a_sample():
+    transport = FakeTransport(_metrics_response([{"type": "engagementRate", "value": 0.02}]))
+    sample = _publisher(transport).fetch_metrics("post_1", "linkedin")
+    assert sample is not None
+    assert sample.engagement_rate() == 0.02
+
+
+def test_every_metric_type_in_the_live_enum_is_recognised():
+    """The 16 PostMetricType values read off the live schema on 2026-08-15."""
+    from app.publisher.buffer import ALL_KNOWN_METRIC_TYPES
+
+    live_enum = {
+        "clicks", "comments", "engagementRate", "follows", "impressions", "likes",
+        "postCount", "quotes", "reach", "reactions", "reposts", "saves",
+        "shares", "totalTimeWatched", "viewers", "views",
+    }
+    unrecognised = sorted(v for v in live_enum if v.lower() not in ALL_KNOWN_METRIC_TYPES)
+    assert not unrecognised, unrecognised
