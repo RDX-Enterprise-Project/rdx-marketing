@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from sqlalchemy import select
 
 from app.calendar import planner
@@ -192,25 +194,44 @@ def test_metrics_are_skipped_cleanly_when_the_provider_has_none(engine, config, 
 # --------------------------------------------------------------------------- #
 
 
+def _multi_platform_day(config):
+    """Any configured day whose pillar runs on more than one platform.
+
+    Derived from the cadence rather than hardcoded, so editing the weekly plan
+    does not break a test that is about planner behaviour, not about which
+    subject happens to run on Wednesday.
+    """
+    for offset in range(7):
+        day = MONDAY + dt.timedelta(days=offset)
+        slots = [s for s in planner.plan_week(config, MONDAY) if s.slot_date == day]
+        by_pillar = {}
+        for slot in slots:
+            by_pillar.setdefault(slot.pillar, []).append(slot)
+        for pillar, group in by_pillar.items():
+            if len(group) > 1:
+                return pillar, group
+    return None, []
+
+
 def test_one_content_item_fills_every_platform_slot_on_its_day(engine, config):
     """The reason platform variants exist at all.
 
-    A single idea is meant to reach LinkedIn, Facebook and Instagram on its day
-    in three different voices. Marking the item used after the first slot would
-    make the variant system pointless.
+    A single idea is meant to reach each of its platforms on its day in a
+    different voice. Marking the item used after the first slot would make the
+    variant system pointless.
     """
-    wednesday = MONDAY + dt.timedelta(days=2)
-    slots = [s for s in planner.plan_week(config, MONDAY) if s.slot_date == wednesday]
-    assert {s.platform for s in slots} == {"linkedin", "facebook", "instagram"}
+    pillar, slots = _multi_platform_day(config)
+    if pillar is None:
+        pytest.skip("no configured day runs one pillar on more than one platform")
 
-    item = make_item(pillar="rdx_capabilities", approval_status=APPROVED)
+    item = make_item(pillar=pillar, approval_status=APPROVED, media_requirement="IMAGE")
     candidate = _candidate(config, item)
 
     with engine.connect() as conn:
         plan = planner.fill_slots(conn, config, slots, [candidate], NOW)
 
-    assert len(plan.filled) == 3, [s.skip_reason for s in plan.skipped]
-    assert {s.platform for s in plan.filled} == {"linkedin", "facebook", "instagram"}
+    assert len(plan.filled) == len(slots), [s.skip_reason for s in plan.skipped]
+    assert {s.platform for s in plan.filled} == {s.platform for s in slots}
     assert {s.content_id for s in plan.filled} == {item.content_id}
 
 
@@ -243,12 +264,13 @@ def test_the_same_item_does_not_run_again_on_another_day(engine, config):
 
 
 def test_daily_limits_still_bound_a_multi_platform_day(engine, config):
-    """Three platforms on one day is three posts, and still counts as three."""
-    wednesday = MONDAY + dt.timedelta(days=2)
-    slots = [s for s in planner.plan_week(config, MONDAY) if s.slot_date == wednesday]
+    """Several platforms on one day is several posts, and still counts as such."""
+    pillar, slots = _multi_platform_day(config)
+    if pillar is None:
+        pytest.skip("no configured day runs one pillar on more than one platform")
     max_per_day = int(config.cadence.limits["max_posts_per_day"])
 
-    item = make_item(pillar="rdx_capabilities", approval_status=APPROVED)
+    item = make_item(pillar=pillar, approval_status=APPROVED, media_requirement="IMAGE")
     with engine.connect() as conn:
         plan = planner.fill_slots(conn, config, slots, [_candidate(config, item)], NOW)
 

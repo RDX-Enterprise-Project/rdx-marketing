@@ -5,7 +5,7 @@
 # skipped. Quality outranks schedule completion, and the weekly report shows
 # skipped slots so a quiet week is visible rather than papered over with filler.
 
-version: "2026.08.14"
+version: "2026.08.15"
 
 timezone: "America/New_York"
 
@@ -19,15 +19,21 @@ weekly_plan:
       platforms: [linkedin]
       post_at: "08:30"
   wednesday:
-    - pillar: rdx_capabilities
-      platforms: [linkedin, facebook, instagram]
+    # SOAR automation is RDX's core technical subject and now has its own lane
+    # rather than being folded into general cybersecurity education.
+    - pillar: soar_automation
+      platforms: [linkedin, facebook]
       post_at: "09:00"
   thursday:
     - pillar: academy_workforce
       platforms: [linkedin, instagram]
       post_at: "08:30"
   friday:
-    - pillar: smallbiz_federal_education
+    # Capabilities and federal-market education share this lane. A slot names
+    # exactly one pillar today, so this is capabilities and federal content
+    # accumulates in the backlog until the slot is changed or the planner
+    # learns to pick between pillars by backlog depth. See the note below.
+    - pillar: rdx_capabilities
       platforms: [linkedin]
       post_at: "08:30"
   saturday:
@@ -36,6 +42,15 @@ weekly_plan:
       post_at: "10:00"
       optional: true
   sunday: []
+
+# NOT YET SUPPORTED: a slot that alternates between pillars, or picks whichever
+# pillar has the deepest approved backlog. `pillar` is a single value and the
+# planner matches on it exactly. Expressing "capabilities or federal, whichever
+# has content waiting" needs a small planner change, not a config change.
+#
+# Until then Friday is capabilities, and approved federal content stays visible
+# as backlog in the weekly report rather than being forced into another
+# pillar's slot.
 
 # Ceilings, so a backlog cannot flood a week.
 limits:
