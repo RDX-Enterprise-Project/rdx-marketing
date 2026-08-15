@@ -1,7 +1,7 @@
 {
   "_fixture": {
     "provenance": "live",
-    "captured_at": "2026-08-15T21:04:35Z",
+    "captured_at": "2026-08-15T22:25:49Z",
     "api": "Buffer createPost (saveToDraft: true)",
     "endpoint": "https://api.buffer.com",
     "documented_at": "2026-08-14",
@@ -20,7 +20,12 @@
         "mode": "addToQueue",
         "schedulingType": "automatic",
         "saveToDraft": true,
-        "needsApproval": false
+        "needsApproval": false,
+        "metadata": {
+          "linkedin": {
+            "firstComment": "RDX Adapter Contract Test - DO NOT PUBLISH."
+          }
+        }
       }
     }
   },

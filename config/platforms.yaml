@@ -37,6 +37,10 @@ platforms:
       hard_max_chars: 2800
     hashtags:
       max: 3
+    # Requires a paid Buffer plan. On a free plan Buffer rejects the whole
+    # createPost call with "LinkedIn first comment requires a paid plan"
+    # (observed 2026-08-15), so a post carrying hashtags in a first comment
+    # fails rather than degrading. Verified working on Essential.
     first_comment_supported: true
     post_types: [post, carousel]
     tone: "technical and business-credible; one concrete takeaway per post"
