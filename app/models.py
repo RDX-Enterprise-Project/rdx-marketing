@@ -272,6 +272,9 @@ post_metrics = Table(
     Column("comments", Integer),
     Column("shares", Integer),
     Column("clicks", Integer),
+    # LinkedIn reports views rather than impressions, so a report ranking on
+    # impressions alone would read every LinkedIn post as zero.
+    Column("views", Integer),
     Column("engagement_rate", Float),
     # Denormalised attribution so the weekly report is one query.
     Column("campaign", String(128)),

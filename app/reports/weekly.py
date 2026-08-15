@@ -123,6 +123,19 @@ def _engagement(sample: Dict[str, Any]) -> int:
     )
 
 
+def _reach(sample: Dict[str, Any]) -> int:
+    """Best available "how many saw it", per platform.
+
+    LinkedIn supplies views and reach but no impressions; ranking on
+    impressions alone would show every LinkedIn post as zero.
+    """
+    for key in ("impressions", "views", "reach"):
+        value = sample.get(key)
+        if value:
+            return int(value)
+    return 0
+
+
 def _aggregate(samples: Sequence[Dict[str, Any]], key: str) -> List[Dict[str, Any]]:
     buckets: Dict[str, Dict[str, Any]] = {}
     for sample in samples:
@@ -131,7 +144,7 @@ def _aggregate(samples: Sequence[Dict[str, Any]], key: str) -> List[Dict[str, An
             name, {"name": name, "posts": 0, "impressions": 0, "engagement": 0}
         )
         bucket["posts"] += 1
-        bucket["impressions"] += int(sample.get("impressions") or 0)
+        bucket["impressions"] += _reach(sample)
         bucket["engagement"] += _engagement(sample)
 
     rows = []
@@ -148,7 +161,7 @@ def _table(heading: str, rows: Sequence[Dict[str, Any]]) -> List[str]:
     if not rows:
         lines += ["No metrics collected in this window.", ""]
         return lines
-    lines.append("| %s | Posts | Avg impressions | Avg engagement |" % heading.rstrip("s"))
+    lines.append("| %s | Posts | Avg reached | Avg engagement |" % heading.rstrip("s"))
     lines.append("| --- | ---: | ---: | ---: |")
     for row in rows:
         lines.append(
@@ -169,11 +182,11 @@ def _best_and_weakest(ranked: Sequence[Dict[str, Any]]) -> List[str]:
     lines.append("")
     for sample in ranked[:3]:
         lines.append(
-            "- %s / %s — %d impressions, %d engagements"
+            "- %s / %s — %d reached, %d engagements"
             % (
                 sample.get("pillar") or "(unattributed)",
                 sample.get("topic") or "(no topic)",
-                int(sample.get("impressions") or 0),
+                _reach(sample),
                 _engagement(sample),
             )
         )
@@ -184,11 +197,11 @@ def _best_and_weakest(ranked: Sequence[Dict[str, Any]]) -> List[str]:
         lines.append("")
         for sample in ranked[-3:]:
             lines.append(
-                "- %s / %s — %d impressions, %d engagements"
+                "- %s / %s — %d reached, %d engagements"
                 % (
                     sample.get("pillar") or "(unattributed)",
                     sample.get("topic") or "(no topic)",
-                    int(sample.get("impressions") or 0),
+                    _reach(sample),
                     _engagement(sample),
                 )
             )

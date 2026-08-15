@@ -65,6 +65,10 @@ class MetricsSample:
     comments: Optional[int] = None
     shares: Optional[int] = None
     clicks: Optional[int] = None
+    #: LinkedIn reports `views` and never `impressions` (confirmed against live
+    #: data 2026-08-15). Kept as its own field rather than folded into
+    #: impressions, because they are not the same measurement.
+    views: Optional[int] = None
     #: Supplied by the provider when it computes one itself. Preferred over a
     #: derived figure, because the platform's own definition is the one the
     #: numbers elsewhere in its reporting will agree with.
@@ -75,10 +79,29 @@ class MetricsSample:
     def engagement(self) -> int:
         return sum(v or 0 for v in (self.reactions, self.comments, self.shares, self.clicks))
 
+    @property
+    def primary_reach(self) -> Optional[int]:
+        """The best available "how many saw it" number for this platform.
+
+        LinkedIn supplies views and reach but no impressions, so a report that
+        ranks on impressions alone would show every LinkedIn post as zero.
+        """
+        for value in (self.impressions, self.views, self.reach):
+            if value:
+                return value
+        return None
+
     def engagement_rate(self) -> Optional[float]:
+        """Always a fraction, never a percentage.
+
+        A provider-supplied rate is preferred, but only after it has been
+        normalised: Buffer reports engagementRate with unit `percentage`, so
+        12.5 means 0.125. Mixing the two scales in one field is a hundredfold
+        error that no test on a single source would catch.
+        """
         if self.reported_engagement_rate is not None:
             return round(self.reported_engagement_rate, 6)
-        base = self.impressions or self.reach
+        base = self.primary_reach
         if not base:
             return None
         return round(self.engagement / float(base), 6)

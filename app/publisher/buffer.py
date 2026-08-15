@@ -108,6 +108,8 @@ query PostMetrics($input: PostInput!) {
 #: Verified against the live schema 2026-08-15.
 METRIC_TYPE_MAP = {
     "impressions": "impressions",
+    # LinkedIn reports views, never impressions.
+    "views": "views",
     "reach": "reach",
     "reactions": "reactions",
     "likes": "reactions",
@@ -126,7 +128,7 @@ RATE_METRIC_TYPES = frozenset({"engagementrate"})
 #: so the contract test can tell "we chose not to carry this" apart from
 #: "Buffer added something new and we are silently dropping it".
 KNOWN_UNMAPPED_METRICS = frozenset(
-    {"follows", "postcount", "saves", "totaltimewatched", "viewers", "views"}
+    {"follows", "postcount", "saves", "totaltimewatched", "viewers"}
 )
 
 #: Everything the adapter recognises, in any capacity.
@@ -381,8 +383,11 @@ class BufferPublisher:
                 continue
 
             if kind in RATE_METRIC_TYPES:
-                # Buffer computes this itself; its number beats ours.
-                reported_rate = raw_value
+                # Buffer computes this itself; its number beats ours, but only
+                # after normalising. `unit: percentage` means 12.5 is 0.125,
+                # and the engine stores rates as fractions everywhere else.
+                unit = str(metric.get("unit", "")).lower()
+                reported_rate = raw_value / 100.0 if unit == "percentage" else raw_value
                 continue
 
             field_name = METRIC_TYPE_MAP.get(kind)
@@ -402,6 +407,7 @@ class BufferPublisher:
             comments=values.get("comments"),
             shares=values.get("shares"),
             clicks=values.get("clicks"),
+            views=values.get("views"),
             reported_engagement_rate=reported_rate,
             raw=response,
         )

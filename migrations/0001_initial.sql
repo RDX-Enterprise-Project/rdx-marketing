@@ -248,6 +248,7 @@ CREATE TABLE post_metrics (
 	comments INTEGER, 
 	shares INTEGER, 
 	clicks INTEGER, 
+	views INTEGER, 
 	engagement_rate FLOAT, 
 	campaign VARCHAR(128), 
 	pillar VARCHAR(64), 

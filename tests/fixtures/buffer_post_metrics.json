@@ -1,26 +1,69 @@
 {
   "_fixture": {
-    "name": "buffer_post_metrics",
-    "provenance": "synthetic",
-    "captured_at": null,
+    "provenance": "live",
+    "captured_at": "2026-08-15T22:36:23Z",
     "api": "Buffer Post.metrics",
     "endpoint": "https://api.buffer.com",
     "documented_at": "2026-08-14",
     "sanitised": [],
-    "note": "Hand-built to the documented shape: a LIST of typed metric objects, not named numeric fields. The unknown this is meant to settle is the exact scalar name in the query (`PostId` vs `ID`) and the real metric `type` values each network reports. A freshly created draft reports no metrics, so capturing this needs a post that has actually been sent."
+    "note": "Captured live, read-only, from a post that had already been sent. Nothing was created, modified, or deleted."
   },
   "payload": {
     "data": {
       "post": {
         "id": "REDACTED_POST_ID",
         "status": "sent",
+        "sentAt": "2026-06-09T13:49:39.000Z",
+        "metricsUpdatedAt": "2026-08-15T22:19:25.919Z",
         "metrics": [
-          { "type": "impressions", "name": "Impressions", "value": 2870, "unit": "count" },
-          { "type": "reach", "name": "Reach", "value": 1980, "unit": "count" },
-          { "type": "reactions", "name": "Reactions", "value": 41, "unit": "count" },
-          { "type": "comments", "name": "Comments", "value": 6, "unit": "count" },
-          { "type": "shares", "name": "Shares", "value": 3, "unit": "count" },
-          { "type": "clicks", "name": "Clicks", "value": 52, "unit": "count" }
+          {
+            "type": "reactions",
+            "name": "Reactions",
+            "value": 3,
+            "unit": "count"
+          },
+          {
+            "type": "comments",
+            "name": "Comments",
+            "value": 1,
+            "unit": "count"
+          },
+          {
+            "type": "engagementRate",
+            "name": "Eng. Rate",
+            "value": 12.5,
+            "unit": "percentage"
+          },
+          {
+            "type": "views",
+            "name": "Views",
+            "value": 67,
+            "unit": "count"
+          },
+          {
+            "type": "shares",
+            "name": "Shares",
+            "value": 0,
+            "unit": "count"
+          },
+          {
+            "type": "saves",
+            "name": "Saves",
+            "value": 0,
+            "unit": "count"
+          },
+          {
+            "type": "follows",
+            "name": "Follows",
+            "value": 1,
+            "unit": "count"
+          },
+          {
+            "type": "reach",
+            "name": "Reach",
+            "value": 32,
+            "unit": "count"
+          }
         ]
       }
     }

@@ -155,6 +155,51 @@ def _meta(api: str, sanitised: List[str], note: str) -> Dict[str, Any]:
     }
 
 
+def _capture_metrics_only(args, token: str) -> int:
+    """Read-only. Fetches one sent post's metrics and writes the fixture."""
+    from app.collectors_http import RequestsHttpClient
+
+    http = RequestsHttpClient()
+    headers = {"Authorization": "Bearer %s" % token, "Content-Type": "application/json"}
+    try:
+        response = http.post_json(
+            API_BASE,
+            {"query": POST_METRICS, "variables": {"input": {"id": args.metrics_post_id}}},
+            headers=headers,
+            timeout=45,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print("metrics query failed: %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
+        return 1
+
+    if response.get("errors"):
+        print("metrics query rejected: %s" % [e.get("message") for e in response["errors"]],
+              file=sys.stderr)
+        return 1
+
+    post = (response.get("data") or {}).get("post") or {}
+    if not post.get("sentAt"):
+        print("post %s has not been sent; it can have no metrics" % args.metrics_post_id,
+              file=sys.stderr)
+        return 1
+
+    notes: List[str] = []
+    document = {
+        "_fixture": _meta(
+            "Buffer Post.metrics",
+            notes,
+            "Captured live, read-only, from a post that had already been sent. "
+            "Nothing was created, modified, or deleted.",
+        ),
+        "payload": sanitise(copy.deepcopy(response), "", [args.metrics_post_id], notes),
+    }
+    document["_fixture"]["sanitised"] = sorted(set(notes))
+    print("wrote %s" % write_fixture("buffer_post_metrics", document).name)
+    types = sorted({m.get("type") for m in (post.get("metrics") or [])})
+    print("metric types present: %s" % ", ".join(types))
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Capture Buffer contract fixtures")
     parser.add_argument("--token", default=None, help="defaults to $BUFFER_ACCESS_TOKEN")
@@ -169,6 +214,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--execute",
         action="store_true",
         help="actually call Buffer. Without this the script only prints the request.",
+    )
+    parser.add_argument(
+        "--metrics-only",
+        action="store_true",
+        help="capture only the metrics fixture; creates nothing",
     )
     parser.add_argument(
         "--no-first-comment",
@@ -213,6 +263,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     printable["channelId"] = REDACTED_CHANNEL
     print(json.dumps(printable, indent=2))
     print()
+
+    if args.metrics_only and args.execute:
+        if not args.metrics_post_id:
+            print("--metrics-only needs --metrics-post-id", file=sys.stderr)
+            return 1
+        return _capture_metrics_only(args, token)
 
     if not args.execute:
         print("Dry run. Nothing sent.")

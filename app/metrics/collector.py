@@ -121,6 +121,7 @@ def _store(
             comments=sample.comments,
             shares=sample.shares,
             clicks=sample.clicks,
+            views=sample.views,
             engagement_rate=sample.engagement_rate(),
             campaign=attribution["campaign"],
             pillar=attribution["pillar"],

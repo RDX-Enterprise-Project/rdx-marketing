@@ -139,17 +139,68 @@ def test_metrics_are_a_list_of_typed_objects():
 
 
 def test_the_parser_reads_the_captured_metrics_response():
+    """Contract, not content: whatever the captured post reported, parse it."""
     transport = FakeTransport(fixtures.payload(METRICS))
     sample = _publisher(transport).fetch_metrics("post_1", "linkedin")
 
     assert sample is not None
-    assert sample.impressions == 2870
-    assert sample.reach == 1980
-    assert sample.reactions == 41
-    assert sample.comments == 6
-    assert sample.shares == 3
-    assert sample.clicks == 52
-    assert sample.engagement_rate() == round(102 / 2870, 6)
+    reported = {
+        m["type"]: m["value"]
+        for m in fixtures.payload(METRICS)["data"]["post"]["metrics"]
+    }
+    if "views" in reported:
+        assert sample.views == int(reported["views"])
+    if "reach" in reported:
+        assert sample.reach == int(reported["reach"])
+    if "reactions" in reported:
+        assert sample.reactions == int(reported["reactions"])
+    # LinkedIn reports no impressions at all, so the reach fallback must work.
+    assert sample.primary_reach, "no usable reach figure survived parsing"
+
+
+def test_a_percentage_engagement_rate_is_normalised_to_a_fraction():
+    """Buffer reports `unit: percentage`, so 12.5 means 0.125.
+
+    Storing it raw would put a hundredfold error into the weekly report, and
+    the number would still look plausible.
+    """
+    metrics = fixtures.payload(METRICS)["data"]["post"]["metrics"]
+    rate = next((m for m in metrics if m["type"] == "engagementRate"), None)
+    if rate is None:
+        pytest.skip("this capture carried no engagementRate")
+    assert rate["unit"] == "percentage", "the unit changed; re-check the normalisation"
+
+    transport = FakeTransport(fixtures.payload(METRICS))
+    sample = _publisher(transport).fetch_metrics("post_1", "linkedin")
+    assert sample.engagement_rate() == round(float(rate["value"]) / 100.0, 6)
+    assert 0.0 <= sample.engagement_rate() <= 1.0
+
+
+def test_buffers_rate_agrees_with_engagement_over_reach():
+    """Sanity-check our understanding of Buffer's own formula against real data."""
+    metrics = {
+        m["type"]: m["value"]
+        for m in fixtures.payload(METRICS)["data"]["post"]["metrics"]
+    }
+    if not metrics.get("engagementRate") or not metrics.get("reach"):
+        pytest.skip("this capture cannot exercise the formula")
+
+    engagement = sum(metrics.get(k, 0) for k in ("reactions", "comments", "shares"))
+    derived = engagement / float(metrics["reach"])
+    assert abs(derived - metrics["engagementRate"] / 100.0) < 0.001, (
+        "Buffer's engagementRate is not engagement over reach; the normalisation "
+        "or the base may be wrong"
+    )
+
+
+def test_linkedin_reports_views_rather_than_impressions():
+    """Pinned because ranking on impressions alone would read as zero."""
+    types = {m["type"] for m in fixtures.payload(METRICS)["data"]["post"]["metrics"]}
+    if "impressions" in types:
+        return  # Buffer started supplying it; nothing to guard
+    assert "views" in types, (
+        "neither impressions nor views present; the weekly report has no reach figure"
+    )
 
 
 def test_every_metric_type_in_the_fixture_is_one_the_adapter_maps():
@@ -259,16 +310,23 @@ def test_the_live_metrics_query_was_accepted():
 
 @pytest.mark.skipif(not fixtures.is_live(METRICS), reason=fixtures.requires_live(METRICS))
 def test_every_live_metric_type_is_one_the_adapter_maps():
-    """An unmapped type is dropped silently, so a live capture must name them all."""
+    """Every type must be *recognised* — mapped, rated, or deliberately unmapped.
+
+    Checked against ALL_KNOWN_METRIC_TYPES rather than METRIC_TYPE_MAP alone,
+    because a rate metric and a deliberate omission are both recognised. Only a
+    type nobody has considered should fail here.
+    """
     metrics = (fixtures.payload(METRICS)["data"]["post"] or {}).get("metrics") or []
-    unmapped = sorted(
+    unknown = sorted(
         {
             str(m["type"])
             for m in metrics
-            if isinstance(m, dict) and str(m.get("type", "")).lower() not in METRIC_TYPE_MAP
+            if isinstance(m, dict)
+            and str(m.get("type", "")).lower() not in ALL_KNOWN_METRIC_TYPES
         }
     )
-    assert not unmapped, (
-        "Buffer reports metric type(s) the adapter drops on the floor: %s. Add them "
-        "to METRIC_TYPE_MAP or they never reach the weekly report." % unmapped
+    assert not unknown, (
+        "Buffer reports metric type(s) the adapter does not recognise: %s. Map them "
+        "in METRIC_TYPE_MAP, add them to RATE_METRIC_TYPES, or list them in "
+        "KNOWN_UNMAPPED_METRICS." % unknown
     )
