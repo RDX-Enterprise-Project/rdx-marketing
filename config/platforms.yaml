@@ -20,10 +20,33 @@ publisher:
   # the item for automatic publication. The approval control therefore exists at
   # the publishing layer as well as in this application.
   default_create_as_draft: true
+  # Channels are addressed by platform *and role*. LinkedIn has two: the
+  # company page and the founder's profile. Those are different audiences with
+  # different voices, and inferring the destination from whichever channel
+  # happens to be configured first is how founder content ends up on a company
+  # page. A pillar whose role has no configured channel is skipped, never
+  # redirected to the other one.
   channels:
-    linkedin_env: "BUFFER_CHANNEL_LINKEDIN"
-    facebook_env: "BUFFER_CHANNEL_FACEBOOK"
-    instagram_env: "BUFFER_CHANNEL_INSTAGRAM"
+    linkedin:
+      company_env: "BUFFER_CHANNEL_LINKEDIN_COMPANY"
+      founder_env: "BUFFER_CHANNEL_LINKEDIN_FOUNDER"
+    facebook:
+      company_env: "BUFFER_CHANNEL_FACEBOOK"
+    instagram:
+      company_env: "BUFFER_CHANNEL_INSTAGRAM"
+
+  # Which voice each pillar speaks in. Anything unlisted defaults to `company`,
+  # which is the conservative direction: a company post on a founder profile is
+  # odd, a founder post on a company page is a governance problem.
+  default_channel_role: company
+  pillar_channel_roles:
+    founder_expertise: founder
+    cybersecurity_education: company
+    soar_automation: company
+    academy_workforce: company
+    rdx_capabilities: company
+    smallbiz_federal_education: company
+    approved_milestones: company
   retry:
     max_attempts: 4
     backoff_seconds: [30, 300, 1800]

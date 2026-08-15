@@ -120,11 +120,17 @@ def publish_variant(
         config.platforms.publisher.get("default_create_as_draft", True)
     )
 
+    # Which voice this speaks in, from the pillar. Derived here rather than
+    # carried on the variant, so a pillar reassignment in config takes effect
+    # without rewriting stored variants.
+    channel_role = config.platforms.channel_role_for_pillar(item.pillar)
+
     request = PublishRequest(
         content_id=item.content_id,
         variant_id=variant.variant_id,
         platform=variant.platform,
         body=variant.body,
+        channel_role=channel_role,
         post_type=variant.post_type,
         first_comment=variant.first_comment,
         media_ids=list(variant.media_ids),
@@ -136,7 +142,11 @@ def publish_variant(
     _record_event(
         conn, pub_id, item.content_id, now, EVENT_SUBMITTED,
         actor="publisher:%s" % publisher.name,
-        detail={"platform": variant.platform, "as_draft": create_as_draft},
+        detail={
+            "platform": variant.platform,
+            "channel_role": channel_role,
+            "as_draft": create_as_draft,
+        },
     )
 
     result = publisher.publish(request)

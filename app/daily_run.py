@@ -41,13 +41,13 @@ def build_publisher(config: AppConfig) -> SocialPublisher:
     from .collectors_http import RequestsHttpClient
 
     token = config.env_value(publisher_cfg.get("token_env", "BUFFER_ACCESS_TOKEN"), "") or ""
-    channel_envs = publisher_cfg.get("channels", {}) or {}
+    # Keyed "platform:role". A role with no configured id is simply absent, and
+    # the publisher refuses rather than substituting a different role.
     channels = {}
-    for platform in ("linkedin", "facebook", "instagram"):
-        env_key = channel_envs.get("%s_env" % platform)
-        value = config.env_value(env_key, "") if env_key else ""
+    for key, env_name in config.platforms.channel_env_vars().items():
+        value = config.env_value(env_name, "") or ""
         if value:
-            channels[platform] = value
+            channels[key] = value
 
     from .publisher.buffer import API_BASE, SCHEDULING_AUTOMATIC
 

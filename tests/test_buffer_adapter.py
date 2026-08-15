@@ -31,7 +31,13 @@ from app.publisher.buffer import (
 UTC = dt.timezone.utc
 NOW = dt.datetime(2026, 8, 17, 13, 30, tzinfo=UTC)
 
-CHANNELS = {"linkedin": "ch_li", "facebook": "ch_fb", "instagram": "ch_ig"}
+# Keyed platform:role. LinkedIn has two roles; the others have one.
+CHANNELS = {
+    "linkedin:company": "ch_li_co",
+    "linkedin:founder": "ch_li_founder",
+    "facebook:company": "ch_fb",
+    "instagram:company": "ch_ig",
+}
 
 
 class FakeTransport:
@@ -98,7 +104,7 @@ def test_required_non_null_fields_are_always_sent():
     _publisher(transport).publish(_request())
 
     sent = transport.calls[0]["payload"]["variables"]["input"]
-    assert sent["channelId"] == "ch_li"
+    assert sent["channelId"] == "ch_li_co"
     assert sent["assets"] == [], "a text-only post must still send an empty asset list"
     assert sent["mode"] == MODE_ADD_TO_QUEUE
     assert sent["schedulingType"] == SCHEDULING_AUTOMATIC
@@ -426,3 +432,42 @@ def test_needs_approval_can_be_turned_on_for_a_channel_that_requires_it():
     transport = FakeTransport(_success())
     _publisher(transport, needs_approval=True).publish(_request(create_as_draft=True))
     assert transport.calls[0]["payload"]["variables"]["input"]["needsApproval"] is True
+
+
+# --------------------------------------------------------------------------- #
+# channel roles
+# --------------------------------------------------------------------------- #
+
+
+def test_a_post_goes_to_the_channel_for_its_role():
+    """LinkedIn has two channels; the role decides which."""
+    for role, expected in (("company", "ch_li_co"), ("founder", "ch_li_founder")):
+        transport = FakeTransport(_success())
+        _publisher(transport).publish(_request(channel_role=role))
+        assert transport.calls[0]["payload"]["variables"]["input"]["channelId"] == expected, role
+
+
+def test_a_missing_role_is_never_substituted_with_another():
+    """The governance failure this prevents: founder content on the company page.
+
+    A missing founder channel must not quietly fall back to the company one.
+    That would look like a sensible default and would put personal-voice content
+    out under the company's name.
+    """
+    transport = FakeTransport(_success())
+    publisher = _publisher(transport, channels={"linkedin:company": "ch_li_co"})
+    result = publisher.publish(_request(channel_role="founder"))
+
+    assert result.status == STATUS_FAILED
+    assert result.retryable is False
+    assert transport.calls == [], "it called Buffer despite having no founder channel"
+    assert "founder" in result.error_message
+    # The message names what *is* configured, so the fix is obvious.
+    assert "company" in result.error_message
+
+
+def test_the_default_role_is_company():
+    from app.publisher.base import PublishRequest
+
+    r = PublishRequest(content_id="c", variant_id="v", platform="linkedin", body="x")
+    assert r.channel_role == "company"

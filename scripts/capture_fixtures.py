@@ -363,7 +363,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         from app.publisher.buffer import BufferConfig, BufferPublisher
 
         publisher = BufferPublisher(
-            http, BufferConfig(token=token, channels={args.platform: channel})
+            http, BufferConfig(token=token, channels={"%s:company" % args.platform: channel})
         )
         if publisher.delete_post(post_id):
             print("deleted the test draft (%s)" % post_id)

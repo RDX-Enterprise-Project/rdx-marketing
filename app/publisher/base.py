@@ -32,6 +32,10 @@ class PublishRequest:
     variant_id: str
     platform: str
     body: str
+    #: Which voice this post speaks in: which of a platform's channels it goes
+    #: to. LinkedIn has a company page and a founder profile; they are not
+    #: interchangeable.
+    channel_role: str = "company"
     post_type: str = "post"
     first_comment: Optional[str] = None
     media_ids: List[str] = field(default_factory=list)

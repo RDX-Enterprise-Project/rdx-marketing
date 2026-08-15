@@ -217,7 +217,7 @@ class BufferPublisher:
 
     def publish(self, request: PublishRequest) -> PublishResult:
         try:
-            channel = self._channel(request.platform)
+            channel = self._channel(request.platform, request.channel_role)
         except MissingChannel as exc:
             # Configuration, not a transient outage. Retrying will not help.
             return PublishResult(
@@ -414,14 +414,26 @@ class BufferPublisher:
 
     # -- helpers ------------------------------------------------------------ #
 
-    def _channel(self, platform: str) -> str:
-        channel = self._config.channels.get(platform)
-        if not channel:
-            raise MissingChannel(
-                "no Buffer channel configured for %r; set the channel id in "
-                "config/platforms.yaml before publishing" % platform
-            )
-        return channel
+    def _channel(self, platform: str, role: str = "company") -> str:
+        """Resolve platform + role. Never substitutes one role for another.
+
+        A missing founder channel must not silently post founder content to the
+        company page. That is a governance failure wearing the costume of a
+        sensible fallback, so it raises instead.
+        """
+        channel = self._config.channels.get("%s:%s" % (platform, role))
+        if channel:
+            return channel
+
+        available = sorted(
+            k.split(":", 1)[1] for k in self._config.channels if k.startswith(platform + ":")
+        )
+        raise MissingChannel(
+            "no Buffer channel configured for %s/%s. Configured roles for %s: %s. "
+            "Set the channel id in config/platforms.yaml; content is never "
+            "redirected to a different role."
+            % (platform, role, platform, ", ".join(available) or "none")
+        )
 
     def _headers(self) -> Dict[str, str]:
         return {

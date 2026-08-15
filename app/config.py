@@ -141,6 +141,26 @@ class Platforms:
     def style(self) -> Dict[str, Any]:
         return dict(self.raw.get("style", {}))
 
+    @property
+    def default_channel_role(self) -> str:
+        return str(self.publisher.get("default_channel_role", "company"))
+
+    def channel_role_for_pillar(self, pillar: str) -> str:
+        """Which voice a pillar speaks in. Unlisted pillars default to company."""
+        roles = self.publisher.get("pillar_channel_roles", {}) or {}
+        return str(roles.get(pillar, self.default_channel_role))
+
+    def channel_env_vars(self) -> Dict[str, str]:
+        """``platform:role`` -> environment variable holding the channel id."""
+        out: Dict[str, str] = {}
+        for platform, roles in (self.publisher.get("channels", {}) or {}).items():
+            if not isinstance(roles, dict):
+                continue
+            for key, env_name in roles.items():
+                if key.endswith("_env"):
+                    out["%s:%s" % (platform, key[: -len("_env")])] = str(env_name)
+        return out
+
 
 @dataclass(frozen=True)
 class AiConfig:
