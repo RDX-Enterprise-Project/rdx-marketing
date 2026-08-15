@@ -135,7 +135,13 @@ def fill_slots(
     max_per_week = int(limits.get("max_posts_per_week", 99))
     min_gap_hours = int(limits.get("min_hours_between_posts_same_platform", 0))
 
-    used_content: set = set()
+    # content_id -> the date it was assigned to.
+    #
+    # One content object is *meant* to reach several platforms on its day: that
+    # is the entire reason it carries per-platform variants. What must not
+    # happen is the same idea running again on a different day. So the guard is
+    # scoped to a date rather than to the week.
+    assigned_date: Dict[str, dt.date] = {}
     per_day: Dict[dt.date, int] = {}
     week_total = 0
     last_post_on_platform: Dict[str, dt.datetime] = {}
@@ -160,7 +166,7 @@ def fill_slots(
                 result.slots.append(slot)
                 continue
 
-        chosen, reason = _choose(conn, config, slot, candidates, used_content, now)
+        chosen, reason = _choose(conn, config, slot, candidates, assigned_date, now)
         if chosen is None:
             _skip(slot, reason or SKIP_NO_CANDIDATE)
             result.slots.append(slot)
@@ -168,7 +174,7 @@ def fill_slots(
 
         slot.content_id = chosen.item.content_id
         slot.status = STATUS_FILLED
-        used_content.add(chosen.item.content_id)
+        assigned_date[chosen.item.content_id] = slot.slot_date
         per_day[slot.slot_date] = per_day.get(slot.slot_date, 0) + 1
         week_total += 1
         last_post_on_platform[slot.platform] = slot.post_at
@@ -182,7 +188,7 @@ def _choose(
     config: AppConfig,
     slot: Slot,
     candidates: Sequence[Candidate],
-    used_content: set,
+    assigned_date: Dict[str, dt.date],
     now: dt.datetime,
 ):
     eligibility = config.cadence.slot_eligibility
@@ -191,7 +197,11 @@ def _choose(
 
     for candidate in candidates:
         item = candidate.item
-        if item.content_id in used_content:
+        # Already running on another day: that would be republishing the same
+        # idea. Already running on *this* day is fine and expected, because a
+        # LinkedIn variant and an Instagram variant are different posts.
+        prior = assigned_date.get(item.content_id)
+        if prior is not None and prior != slot.slot_date:
             continue
         if item.pillar != slot.pillar:
             continue

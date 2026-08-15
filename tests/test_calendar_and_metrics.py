@@ -185,3 +185,71 @@ def test_metrics_are_skipped_cleanly_when_the_provider_has_none(engine, config, 
     assert result.collected == 0
     assert result.skipped_no_data == 1
     assert result.errors == []
+
+
+# --------------------------------------------------------------------------- #
+# one idea, several platforms, one day
+# --------------------------------------------------------------------------- #
+
+
+def test_one_content_item_fills_every_platform_slot_on_its_day(engine, config):
+    """The reason platform variants exist at all.
+
+    A single idea is meant to reach LinkedIn, Facebook and Instagram on its day
+    in three different voices. Marking the item used after the first slot would
+    make the variant system pointless.
+    """
+    wednesday = MONDAY + dt.timedelta(days=2)
+    slots = [s for s in planner.plan_week(config, MONDAY) if s.slot_date == wednesday]
+    assert {s.platform for s in slots} == {"linkedin", "facebook", "instagram"}
+
+    item = make_item(pillar="rdx_capabilities", approval_status=APPROVED)
+    candidate = _candidate(config, item)
+
+    with engine.connect() as conn:
+        plan = planner.fill_slots(conn, config, slots, [candidate], NOW)
+
+    assert len(plan.filled) == 3, [s.skip_reason for s in plan.skipped]
+    assert {s.platform for s in plan.filled} == {"linkedin", "facebook", "instagram"}
+    assert {s.content_id for s in plan.filled} == {item.content_id}
+
+
+def test_the_same_item_does_not_run_again_on_another_day(engine, config):
+    """Reaching three platforms on Wednesday is fine. Reappearing Thursday is not."""
+    item = make_item(pillar="cybersecurity_education", approval_status=APPROVED)
+    slots = [
+        s
+        for s in planner.plan_week(config, MONDAY)
+        if s.pillar == "cybersecurity_education"
+    ]
+    # Give it a second day in the same pillar so there is somewhere to reappear.
+    extra = planner.Slot(
+        slot_id="extra",
+        slot_date=MONDAY + dt.timedelta(days=4),
+        weekday="friday",
+        pillar="cybersecurity_education",
+        platform="linkedin",
+        post_at=dt.datetime.combine(
+            MONDAY + dt.timedelta(days=4), dt.time(8, 30), tzinfo=dt.timezone.utc
+        ),
+    )
+
+    with engine.connect() as conn:
+        plan = planner.fill_slots(conn, config, slots + [extra], [_candidate(config, item)], NOW)
+
+    filled_dates = {s.slot_date for s in plan.filled}
+    assert filled_dates == {MONDAY}, "the item reappeared on a later day"
+    assert any(s.slot_id == "extra" and s.status == STATUS_SKIPPED for s in plan.slots)
+
+
+def test_daily_limits_still_bound_a_multi_platform_day(engine, config):
+    """Three platforms on one day is three posts, and still counts as three."""
+    wednesday = MONDAY + dt.timedelta(days=2)
+    slots = [s for s in planner.plan_week(config, MONDAY) if s.slot_date == wednesday]
+    max_per_day = int(config.cadence.limits["max_posts_per_day"])
+
+    item = make_item(pillar="rdx_capabilities", approval_status=APPROVED)
+    with engine.connect() as conn:
+        plan = planner.fill_slots(conn, config, slots, [_candidate(config, item)], NOW)
+
+    assert len(plan.filled) <= max_per_day
