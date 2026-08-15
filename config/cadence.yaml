@@ -29,11 +29,13 @@ weekly_plan:
       platforms: [linkedin, instagram]
       post_at: "08:30"
   friday:
-    # Capabilities and federal-market education share this lane. A slot names
-    # exactly one pillar today, so this is capabilities and federal content
-    # accumulates in the backlog until the slot is changed or the planner
-    # learns to pick between pillars by backlog depth. See the note below.
-    - pillar: rdx_capabilities
+    # A shared lane. The planner takes whichever of these has approved content
+    # waiting, checking them in this order. If both do, the order here is the
+    # editorial priority and decides; if neither does, the slot is skipped and
+    # recorded, never filled with something from another subject.
+    - pillar:
+        - rdx_capabilities
+        - smallbiz_federal_education
       platforms: [linkedin]
       post_at: "08:30"
   saturday:
@@ -43,14 +45,17 @@ weekly_plan:
       optional: true
   sunday: []
 
-# NOT YET SUPPORTED: a slot that alternates between pillars, or picks whichever
-# pillar has the deepest approved backlog. `pillar` is a single value and the
-# planner matches on it exactly. Expressing "capabilities or federal, whichever
-# has content waiting" needs a small planner change, not a config change.
+# `pillar` accepts a single value or a priority-ordered list. A list makes the
+# slot shared: the planner tries each pillar in order and takes the first with
+# qualified approved content for that date.
 #
-# Until then Friday is capabilities, and approved federal content stays visible
-# as backlog in the weekly report rather than being forced into another
-# pillar's slot.
+# Deliberately NOT week-number alternation. Backlog-aware selection responds to
+# the content that actually exists, rather than running capabilities this Friday
+# because the calendar says so while federal content waits.
+#
+# `approved_milestones` has no weekly lane on purpose. A certification or
+# partnership is event-driven, and a recurring milestone slot would invite
+# manufacturing milestones to fill it.
 
 # Ceilings, so a backlog cannot flood a week.
 limits:

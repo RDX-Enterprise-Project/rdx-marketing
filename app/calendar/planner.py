@@ -48,16 +48,37 @@ SKIP_DUPLICATE = "the only available copy duplicates a recent post"
 
 @dataclass
 class Slot:
+    """One posting opportunity.
+
+    ``pillars`` is the candidate list in **editorial priority order**. A slot
+    may be shared between subjects — Friday is capabilities or federal-market
+    education — and takes whichever has approved content waiting. When both do,
+    the order in ``cadence.yaml`` decides, so the planner never invents its own
+    preference.
+
+    ``pillar`` is the resolved subject: what the slot actually ran, or the first
+    preference while it is still open.
+    """
+
     slot_id: str
     slot_date: dt.date
     weekday: str
-    pillar: str
+    pillars: List[str]
     platform: str
     post_at: dt.datetime
     optional: bool = False
     content_id: Optional[str] = None
     status: str = STATUS_OPEN
     skip_reason: Optional[str] = None
+    resolved_pillar: Optional[str] = None
+
+    @property
+    def pillar(self) -> str:
+        return self.resolved_pillar or (self.pillars[0] if self.pillars else "")
+
+    @property
+    def is_shared(self) -> bool:
+        return len(self.pillars) > 1
 
     def to_row(self, now: dt.datetime) -> Dict[str, Any]:
         return {
@@ -65,6 +86,7 @@ class Slot:
             "slot_date": self.slot_date,
             "weekday": self.weekday,
             "pillar": self.pillar,
+            "candidate_pillars": list(self.pillars),
             "platform": self.platform,
             "post_at": self.post_at,
             "content_id": self.content_id,
@@ -96,16 +118,21 @@ def plan_week(config: AppConfig, monday: dt.date) -> List[Slot]:
     for offset, weekday in enumerate(WEEKDAYS):
         day = monday + dt.timedelta(days=offset)
         for entry in config.cadence.plan_for(weekday):
-            pillar = str(entry["pillar"])
+            pillars = normalise_pillars(entry.get("pillar"))
+            if not pillars:
+                raise ValueError("%s slot has no pillar" % weekday)
             post_at_str = str(entry.get("post_at", "09:00"))
             hour, minute = (int(p) for p in post_at_str.split(":", 1))
             for platform in entry.get("platforms", []):
                 slots.append(
                     Slot(
-                        slot_id="%s|%s|%s" % (day.isoformat(), pillar, platform),
+                        # Built from the candidate list, so the id is stable
+                        # whichever pillar the slot resolves to.
+                        slot_id="%s|%s|%s"
+                        % (day.isoformat(), "+".join(pillars), platform),
                         slot_date=day,
                         weekday=weekday,
-                        pillar=pillar,
+                        pillars=pillars,
                         platform=str(platform),
                         post_at=dt.datetime.combine(
                             day, dt.time(hour, minute), tzinfo=dt.timezone.utc
@@ -114,6 +141,19 @@ def plan_week(config: AppConfig, monday: dt.date) -> List[Slot]:
                     )
                 )
     return slots
+
+
+def normalise_pillars(value: Any) -> List[str]:
+    """Accept either a single pillar or a priority-ordered list.
+
+    Order is meaningful and is preserved exactly: it is the editorial priority
+    for a shared slot, and the planner must not reorder it.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value]
 
 
 @dataclass
@@ -173,6 +213,7 @@ def fill_slots(
             continue
 
         slot.content_id = chosen.item.content_id
+        slot.resolved_pillar = chosen.item.pillar
         slot.status = STATUS_FILLED
         assigned_date[chosen.item.content_id] = slot.slot_date
         per_day[slot.slot_date] = per_day.get(slot.slot_date, 0) + 1
@@ -195,33 +236,40 @@ def _choose(
     min_chars = config.cadence.min_body_chars(slot.platform)
     reason: Optional[str] = None
 
-    for candidate in candidates:
-        item = candidate.item
-        # Already running on another day: that would be republishing the same
-        # idea. Already running on *this* day is fine and expected, because a
-        # LinkedIn variant and an Instagram variant are different posts.
-        prior = assigned_date.get(item.content_id)
-        if prior is not None and prior != slot.slot_date:
-            continue
-        if item.pillar != slot.pillar:
-            continue
-        if eligibility.get("require_classification", True) and not item.is_classified:
-            continue
-        if eligibility.get("require_approved", True) and item.approval_status != APPROVED:
-            continue
+    # Pillar-major on purpose. The whole list is searched for the first
+    # preference before the second is considered at all, so a shared slot
+    # honours the editorial order in cadence.yaml rather than picking whichever
+    # candidate happens to look strongest. Deterministic, and the priority is
+    # the editor's, not the planner's.
+    for pillar in slot.pillars:
+        for candidate in candidates:
+            item = candidate.item
+            if item.pillar != pillar:
+                continue
+            # Already running on another day: that would be republishing the
+            # same idea. Already running on *this* day is fine and expected,
+            # because a LinkedIn variant and an Instagram variant are different
+            # posts.
+            prior = assigned_date.get(item.content_id)
+            if prior is not None and prior != slot.slot_date:
+                continue
+            if eligibility.get("require_classification", True) and not item.is_classified:
+                continue
+            if eligibility.get("require_approved", True) and item.approval_status != APPROVED:
+                continue
 
-        variant = candidate.variants.get(slot.platform)
-        if variant is None:
-            reason = reason or SKIP_NO_VARIANT
-            continue
-        if min_chars and len(variant.body) < min_chars:
-            reason = SKIP_TOO_SHORT
-            continue
-        if _recently_published(conn, config, slot.platform, variant, now):
-            reason = SKIP_DUPLICATE
-            continue
+            variant = candidate.variants.get(slot.platform)
+            if variant is None:
+                reason = reason or SKIP_NO_VARIANT
+                continue
+            if min_chars and len(variant.body) < min_chars:
+                reason = SKIP_TOO_SHORT
+                continue
+            if _recently_published(conn, config, slot.platform, variant, now):
+                reason = SKIP_DUPLICATE
+                continue
 
-        return candidate, None
+            return candidate, None
 
     return None, reason
 

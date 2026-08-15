@@ -248,7 +248,7 @@ def test_the_same_item_does_not_run_again_on_another_day(engine, config):
         slot_id="extra",
         slot_date=MONDAY + dt.timedelta(days=4),
         weekday="friday",
-        pillar="cybersecurity_education",
+        pillars=["cybersecurity_education"],
         platform="linkedin",
         post_at=dt.datetime.combine(
             MONDAY + dt.timedelta(days=4), dt.time(8, 30), tzinfo=dt.timezone.utc
@@ -275,3 +275,151 @@ def test_daily_limits_still_bound_a_multi_platform_day(engine, config):
         plan = planner.fill_slots(conn, config, slots, [_candidate(config, item)], NOW)
 
     assert len(plan.filled) <= max_per_day
+
+
+# --------------------------------------------------------------------------- #
+# shared slots: list-valued pillar, editorial priority order
+# --------------------------------------------------------------------------- #
+
+FRIDAY = MONDAY + dt.timedelta(days=4)
+
+
+def _friday_slot(config):
+    slots = [s for s in planner.plan_week(config, MONDAY) if s.slot_date == FRIDAY]
+    assert slots, "the cadence should define a Friday slot"
+    return slots
+
+
+def test_a_slot_may_declare_several_pillars(config):
+    slots = _friday_slot(config)
+    assert slots[0].is_shared
+    assert slots[0].pillars == ["rdx_capabilities", "smallbiz_federal_education"]
+
+
+def test_pillar_accepts_a_single_value_or_a_list():
+    assert planner.normalise_pillars("capabilities") == ["capabilities"]
+    assert planner.normalise_pillars(["a", "b"]) == ["a", "b"]
+    assert planner.normalise_pillars(None) == []
+    # Order is editorial priority and must never be reordered.
+    assert planner.normalise_pillars(["b", "a"]) == ["b", "a"]
+
+
+def test_a_shared_slot_takes_the_second_pillar_when_the_first_has_nothing(engine, config):
+    """The point of the change: federal content no longer waits behind an empty
+    capabilities queue."""
+    federal = make_item(
+        content_id="MKT-2026-00401",
+        pillar="smallbiz_federal_education",
+        disclosure="PUBLIC_AFTER_APPROVAL",
+        approval_status=APPROVED,
+    )
+    with engine.connect() as conn:
+        plan = planner.fill_slots(
+            conn, config, _friday_slot(config), [_candidate(config, federal)], NOW
+        )
+
+    assert len(plan.filled) == 1
+    assert plan.filled[0].content_id == federal.content_id
+    # The slot records what it actually ran, not the first preference.
+    assert plan.filled[0].pillar == "smallbiz_federal_education"
+
+
+def test_when_both_pillars_have_content_the_config_order_decides(engine, config):
+    """Determinism guardrail: the editor sets the priority, not the planner."""
+    capabilities = make_item(
+        content_id="MKT-2026-00402",
+        pillar="rdx_capabilities",
+        disclosure="PUBLIC_AFTER_APPROVAL",
+        approval_status=APPROVED,
+    )
+    federal = make_item(
+        content_id="MKT-2026-00403",
+        pillar="smallbiz_federal_education",
+        disclosure="PUBLIC_AFTER_APPROVAL",
+        approval_status=APPROVED,
+    )
+
+    # Offered federal-first, to prove candidate order does not sway the result.
+    with engine.connect() as conn:
+        plan = planner.fill_slots(
+            conn,
+            config,
+            _friday_slot(config),
+            [_candidate(config, federal), _candidate(config, capabilities)],
+            NOW,
+        )
+
+    assert plan.filled[0].content_id == capabilities.content_id
+    assert plan.filled[0].pillar == "rdx_capabilities"
+
+
+def test_a_shared_slot_with_nothing_qualified_is_still_skipped(engine, config):
+    """No manufacturing content to satisfy the cadence."""
+    with engine.connect() as conn:
+        plan = planner.fill_slots(conn, config, _friday_slot(config), [], NOW)
+
+    assert plan.filled == []
+    assert plan.skipped[0].skip_reason
+    # An unfilled shared slot reports its first preference, not a blank.
+    assert plan.skipped[0].pillar == "rdx_capabilities"
+
+
+def test_a_shared_slot_will_not_take_content_from_an_unlisted_pillar(engine, config):
+    """Backlog pressure must not push unrelated content into a slot."""
+    unrelated = make_item(
+        content_id="MKT-2026-00404", pillar="cybersecurity_education", approval_status=APPROVED
+    )
+    with engine.connect() as conn:
+        plan = planner.fill_slots(
+            conn, config, _friday_slot(config), [_candidate(config, unrelated)], NOW
+        )
+    assert plan.filled == []
+
+
+def test_the_slot_id_is_stable_whichever_pillar_wins(engine, config):
+    """Identity must not change when a shared slot resolves differently."""
+    before = _friday_slot(config)[0].slot_id
+
+    federal = make_item(
+        content_id="MKT-2026-00405",
+        pillar="smallbiz_federal_education",
+        disclosure="PUBLIC_AFTER_APPROVAL",
+        approval_status=APPROVED,
+    )
+    with engine.connect() as conn:
+        plan = planner.fill_slots(
+            conn, config, _friday_slot(config), [_candidate(config, federal)], NOW
+        )
+
+    assert plan.filled[0].slot_id == before
+    assert plan.filled[0].pillar == "smallbiz_federal_education"
+
+
+def test_a_resolved_shared_slot_persists_both_the_choice_and_the_candidates(engine, config):
+    from app.models import schedule_slots
+
+    federal = make_item(
+        content_id="MKT-2026-00406",
+        pillar="smallbiz_federal_education",
+        disclosure="PUBLIC_AFTER_APPROVAL",
+        approval_status=APPROVED,
+    )
+    with engine.begin() as conn:
+        # The slot's content_id is a real foreign key, so the item has to exist.
+        save_item(conn, federal, NOW)
+        plan = planner.fill_slots(
+            conn, config, _friday_slot(config), [_candidate(config, federal)], NOW
+        )
+        planner.persist(conn, plan.slots, NOW)
+
+    with engine.connect() as conn:
+        row = conn.execute(select(schedule_slots)).mappings().one()
+
+    assert row["pillar"] == "smallbiz_federal_education"
+    assert row["candidate_pillars"] == ["rdx_capabilities", "smallbiz_federal_education"]
+
+
+def test_milestones_have_no_recurring_lane(config):
+    """Event-driven only: a weekly milestone slot would invite inventing them."""
+    scheduled = {p for s in planner.plan_week(config, MONDAY) for p in s.pillars}
+    assert "approved_milestones" not in scheduled

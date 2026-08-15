@@ -172,10 +172,15 @@ policy_decisions = Table(
 schedule_slots = Table(
     "schedule_slots",
     metadata,
-    Column("slot_id", String(48), primary_key=True),
+    Column("slot_id", String(96), primary_key=True),
     Column("slot_date", Date, nullable=False),
     Column("weekday", String(16), nullable=False),
+    # The pillar this slot actually resolved to. For a shared slot this is
+    # decided at fill time; until then it is the first editorial preference.
     Column("pillar", String(64), nullable=False),
+    # Candidate pillars in editorial priority order. A slot may be shared
+    # between subjects, taking whichever has approved content waiting.
+    Column("candidate_pillars", JsonDoc, nullable=False, default=list),
     Column("platform", String(32), nullable=False),
     Column("post_at", UtcDateTime, nullable=False),
     Column("content_id", String(32), ForeignKey("content_items.content_id")),
@@ -183,8 +188,10 @@ schedule_slots = Table(
     Column("status", String(40), nullable=False, default="OPEN"),
     Column("skip_reason", LongText),
     Column("created_at", UtcDateTime, nullable=False),
-    UniqueConstraint("slot_date", "pillar", "platform", name="uq_slot"),
+    # Identity is the slot_id, which is built from the candidate list and so is
+    # stable regardless of which pillar the slot resolves to.
     Index("ix_slot_date", "slot_date"),
+    Index("ix_slot_day_platform", "slot_date", "platform"),
 )
 
 publications = Table(

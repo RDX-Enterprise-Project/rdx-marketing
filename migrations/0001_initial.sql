@@ -194,10 +194,11 @@ CREATE TABLE policy_decisions (
 );
 
 CREATE TABLE schedule_slots (
-	slot_id VARCHAR(48) NOT NULL, 
+	slot_id VARCHAR(96) NOT NULL, 
 	slot_date DATE NOT NULL, 
 	weekday VARCHAR(16) NOT NULL, 
 	pillar VARCHAR(64) NOT NULL, 
+	candidate_pillars JSONB NOT NULL, 
 	platform VARCHAR(32) NOT NULL, 
 	post_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	content_id VARCHAR(32), 
@@ -205,11 +206,12 @@ CREATE TABLE schedule_slots (
 	skip_reason TEXT, 
 	created_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	PRIMARY KEY (slot_id), 
-	CONSTRAINT uq_slot UNIQUE (slot_date, pillar, platform), 
 	FOREIGN KEY(content_id) REFERENCES content_items (content_id)
 );
 
 CREATE INDEX ix_slot_date ON schedule_slots (slot_date);
+
+CREATE INDEX ix_slot_day_platform ON schedule_slots (slot_date, platform);
 
 CREATE TABLE publications (
 	publication_id VARCHAR(64) NOT NULL, 
