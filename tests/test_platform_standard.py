@@ -15,6 +15,7 @@ DOCS = (
     "SECURITY.md",
     "INTERFACES.md",
     "docs/RDX-PLATFORM-STANDARD-v1.md",
+    "docs/PHASE-13-BACKLOG.md",
 )
 TREND_KEYS = ("signal_code", "observed_period", "direction", "confidence")
 
@@ -56,3 +57,10 @@ def test_production_freeze_is_unchanged():
     wrangler = (ROOT / "receiver" / "wrangler.jsonc").read_text(encoding="utf-8")
     assert "BUFFER_" not in wrangler
     assert "linkedin" not in wrangler.lower()
+
+
+def test_phase_13_is_backlog_not_authorised():
+    text = (ROOT / "docs/PHASE-13-BACKLOG.md").read_text(encoding="utf-8")
+    assert "FOLLOW-UP, NOT BLOCKERS" in text
+    assert "Not authorised for implementation" in text
+    assert "HUMAN_APPROVAL_REQUIRED" in text

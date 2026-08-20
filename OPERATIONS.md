@@ -67,9 +67,5 @@ state if needed.
 
 ## Follow-ups (not blockers)
 
-- True ingestion refusal: do not persist raw rejected payloads
-  (`docs/rejected-payload-at-rest.md`).
-- Buffer channel-name cleanup (`BUFFER_CHANNEL_LINKEDIN` vs
-  `BUFFER_CHANNEL_LINKEDIN_COMPANY` / `_FOUNDER`).
-- Future publishing approval workflow (not auto-post).
-- Common observability/dashboard.
+Phase 13 backlog is recorded in `docs/PHASE-13-BACKLOG.md`. Not authorised
+for implementation until separately prioritised.
