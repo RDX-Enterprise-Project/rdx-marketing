@@ -22,6 +22,7 @@ from .ai.drafting import DraftingService, apply_draft
 from .approval import queue
 from .calendar import planner
 from .calendar.planner import Candidate, Slot
+from .capture_bridge import convert_pending_accepted_events
 from .clock import Clock
 from .config import AppConfig
 from .content.evidence import evidence_for
@@ -177,6 +178,7 @@ def _platforms_for(config: AppConfig, item: ContentItem) -> List[str]:
 def _prepare_content(
     conn, config: AppConfig, service: DraftingService, now: dt.datetime
 ) -> List[ContentOutcome]:
+    convert_pending_accepted_events(conn, config, now)
     rows = (
         conn.execute(
             select(content_items).where(

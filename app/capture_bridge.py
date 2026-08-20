@@ -41,6 +41,7 @@ from .content.item import (
     ORIGIN_EVENT,
     ContentItem,
 )
+from .content.store import next_content_id, save_item
 from .models import marketing_events
 
 INTAKE_ACCEPTED = "ACCEPTED"
@@ -136,11 +137,22 @@ class IntakeResult:
 
     @property
     def accepted(self) -> bool:
-        return self.status == INTAKE_ACCEPTED
+        return self.status in (INTAKE_ACCEPTED, INTAKE_CONVERTED)
 
 
-def event_id_for(payload: Dict[str, Any], received_at: dt.datetime) -> str:
-    seed = json.dumps(payload, sort_keys=True, default=str) + received_at.isoformat()
+def event_id_for(payload: Dict[str, Any], received_at: Optional[dt.datetime] = None) -> str:
+    """Stable identity: one sanitised (signal_code, observed_period) is one event."""
+    present = {str(k).lower() for k in payload.keys()} if isinstance(payload, dict) else set()
+    if present <= ALLOWED_KEYS and "signal_code" in present and "observed_period" in present:
+        seed = json.dumps(
+            {
+                "signal_code": str(payload.get("signal_code", "")).strip().upper(),
+                "observed_period": str(payload.get("observed_period", "")).strip(),
+            },
+            sort_keys=True,
+        )
+    else:
+        seed = json.dumps(payload, sort_keys=True, default=str)
     return "EVT-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
 
 
@@ -207,6 +219,26 @@ def intake(
 ) -> IntakeResult:
     """Record an inbound marketing event and say whether it was accepted."""
     event_id = event_id_for(payload, now)
+    existing = (
+        conn.execute(
+            select(marketing_events).where(marketing_events.c.event_id == event_id)
+        )
+        .mappings()
+        .first()
+    )
+    if existing:
+        signal = None
+        if existing["intake_status"] in (INTAKE_ACCEPTED, INTAKE_CONVERTED):
+            try:
+                signal = validate(dict(existing["payload"] or {}))
+            except UnsanitisedSignal:
+                signal = None
+        return IntakeResult(
+            existing["event_id"],
+            existing["intake_status"],
+            signal=signal,
+            rejection_reason=existing.get("rejection_reason"),
+        )
 
     if event_type != EVENT_TREND_SIGNAL:
         _record(
@@ -307,6 +339,62 @@ def to_content_draft(
         cta="More on how RDX approaches this at rdxenterprise.com",
         notes={"derived_from_signal": signal.signal_code, "direction": signal.direction},
     )
+
+
+def convert_accepted_event(
+    conn: Connection,
+    config: AppConfig,
+    result: IntakeResult,
+    now: dt.datetime,
+) -> Optional[str]:
+    """Create at most one HUMAN_APPROVAL_REQUIRED draft for an accepted event."""
+    row = (
+        conn.execute(
+            select(marketing_events).where(marketing_events.c.event_id == result.event_id)
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    if row["content_id"]:
+        return row["content_id"]
+    if row["intake_status"] not in (INTAKE_ACCEPTED, INTAKE_CONVERTED):
+        return None
+    if result.signal is None:
+        return None
+    content_id = next_content_id(conn, now.year)
+    draft = to_content_draft(config, result.signal, content_id)
+    save_item(conn, draft, now)
+    mark_converted(conn, result.event_id, content_id)
+    return content_id
+
+
+def convert_pending_accepted_events(
+    conn: Connection, config: AppConfig, now: dt.datetime
+) -> List[str]:
+    """Idempotent: ACCEPTED rows with no content_id become one draft each."""
+    created: List[str] = []
+    rows = (
+        conn.execute(
+            select(marketing_events).where(
+                marketing_events.c.intake_status == INTAKE_ACCEPTED,
+                marketing_events.c.content_id.is_(None),
+            )
+        )
+        .mappings()
+        .all()
+    )
+    for row in rows:
+        result = IntakeResult(
+            row["event_id"],
+            INTAKE_ACCEPTED,
+            signal=validate(dict(row["payload"] or {})),
+        )
+        content_id = convert_accepted_event(conn, config, result, now)
+        if content_id:
+            created.append(content_id)
+    return created
 
 
 def mark_converted(conn: Connection, event_id: str, content_id: str) -> None:
