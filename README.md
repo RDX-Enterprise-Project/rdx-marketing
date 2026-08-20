@@ -1,5 +1,12 @@
 # RDX Marketing Engine
 
+`rdx-marketing` is an RDX **standalone platform**. It owns its database,
+schedule, secrets, tests, and failure domain. CaptureOS arrives only as
+**TREND_SIGNAL v1**. Publisher, Buffer, and Marketing AI stay off.
+
+Operator docs: `ARCHITECTURE.md`, `OPERATIONS.md`, `SECURITY.md`,
+`INTERFACES.md`. Standard: `docs/RDX-PLATFORM-STANDARD-v1.md`.
+
 External marketing automation for RDX Enterprise across LinkedIn, Facebook, and
 Instagram. It maintains the calendar, produces platform-specific drafts, routes
 sensitive content for approval, schedules and publishes what is genuinely
@@ -158,6 +165,9 @@ high-value founder copy needs an expensive one. Every call is ledgered in
 the template stands and the run continues.
 
 ## Status
+
+Phase 12: **GREEN — waiting for a natural qualifying trend**. Draft-only.
+Platform Standard v1 applied. Production freeze in `OPERATIONS.md`.
 
 | Increment | State |
 | --- | --- |

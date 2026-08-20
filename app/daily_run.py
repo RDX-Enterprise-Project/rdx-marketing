@@ -102,6 +102,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     summary = {
         "run_id": result.run_id,
+        "service": "rdx-marketing",
         "business_date": result.business_date.isoformat(),
         "status": result.status,
         "slots_planned": len(result.plan.slots) if result.plan else 0,
