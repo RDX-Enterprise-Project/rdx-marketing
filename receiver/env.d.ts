@@ -1,0 +1,4 @@
+interface Env {
+  RDX_MARKETING_BRIDGE_SECRET: string;
+  RDX_MARKETING_DATABASE_URL: string;
+}

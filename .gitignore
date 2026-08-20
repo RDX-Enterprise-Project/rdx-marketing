@@ -10,3 +10,8 @@ drafts/
 build/
 dist/
 *.egg-info/
+node_modules/
+.dev.vars
+.wrangler/
+receiver/node_modules/
+receiver/.wrangler/

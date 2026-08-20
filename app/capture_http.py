@@ -21,6 +21,8 @@ from .db import make_engine, transaction
 UTC = dt.timezone.utc
 MAX_BODY_BYTES = 4 * 1024
 PATH = "/v1/capture/trends"
+HEALTH_PATH = "/health"
+SERVICE_NAME = "rdx-marketing-capture"
 SECRET_ENV = "RDX_MARKETING_BRIDGE_SECRET"
 
 
@@ -65,6 +67,10 @@ def handle_trend_post(
     }
 
 
+def handle_health() -> Tuple[int, Dict[str, Any]]:
+    return 200, {"status": "ok", "service": SERVICE_NAME}
+
+
 class _Handler(BaseHTTPRequestHandler):
     config: AppConfig
     engine: Any
@@ -73,8 +79,26 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:  # pragma: no cover
         return
 
+    def do_GET(self) -> None:  # pragma: no cover - exercised via handle_health
+        path = self.path.split("?", 1)[0]
+        if path == HEALTH_PATH:
+            status, payload = handle_health()
+            self._write(status, payload)
+            return
+        if path == PATH:
+            self._write(405, {"status": "method_not_allowed"})
+            return
+        self._write(404, {"status": "not_found"})
+
+    def do_HEAD(self) -> None:  # pragma: no cover - same routing as GET
+        self.do_GET()
+
     def do_POST(self) -> None:  # pragma: no cover - exercised via handle_trend_post
-        if self.path.split("?", 1)[0] != PATH:
+        path = self.path.split("?", 1)[0]
+        if path == HEALTH_PATH:
+            self._write(405, {"status": "method_not_allowed"})
+            return
+        if path != PATH:
             self._write(404, {"status": "not_found"})
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -114,8 +138,11 @@ def serve(
 
 
 def main() -> None:  # pragma: no cover
-    host = os.environ.get("RDX_MARKETING_INTAKE_HOST", "127.0.0.1")
-    port = int(os.environ.get("RDX_MARKETING_INTAKE_PORT", "8088"))
+    # Loopback unless a platform injects PORT (Render/Fly/Containers).
+    host = os.environ.get("RDX_MARKETING_INTAKE_HOST")
+    if not host:
+        host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
+    port = int(os.environ.get("PORT") or os.environ.get("RDX_MARKETING_INTAKE_PORT", "8088"))
     httpd = serve(host, port)
     httpd.serve_forever()
 

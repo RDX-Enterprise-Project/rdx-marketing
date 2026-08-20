@@ -94,3 +94,23 @@ def test_wrong_secret_is_unauthorized(engine, config):
         json.dumps(GOOD).encode(), "Bearer wrong", cfg, engine, NOW
     )
     assert status == 401
+    with engine.connect() as conn:
+        assert conn.execute(select(marketing_events)).mappings().all() == []
+
+
+def test_health_is_unauthenticated():
+    from app.capture_http import handle_health
+
+    status, body = handle_health()
+    assert status == 200
+    assert body["status"] == "ok"
+    assert body["service"] == "rdx-marketing-capture"
+
+
+def test_unauthenticated_post_does_not_ingest(engine, config):
+    cfg = _config(config)
+    status, body = handle_trend_post(json.dumps(GOOD).encode(), "", cfg, engine, NOW)
+    assert status == 401
+    assert body["status"] == "unauthorized"
+    with engine.connect() as conn:
+        assert conn.execute(select(marketing_events)).mappings().all() == []
